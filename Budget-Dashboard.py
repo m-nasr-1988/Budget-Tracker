@@ -30,7 +30,7 @@ def read_sheet(sheet_name):
             if col not in df.columns:
                 df[col] = ""
         df = df[COLUMNS].fillna("")
-        df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0.0)
+        df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce")
         return df
     return pd.DataFrame(columns=COLUMNS)
 
@@ -70,7 +70,7 @@ if selected_month == "+ New Month":
             df_month["Amount"] = 0.0
         else:
             df_month = pd.DataFrame([
-                {"Type": "Income", "Category": "Salary", "Description": "", "Amount": 0.0}
+                {"Type": "Income", "Category": "", "Description": "", "Amount": 0.0}
             ])
         save_to_excel(new_month_name, df_month)
 
@@ -98,10 +98,16 @@ if current_month and current_month != "+ New Month":
             ])
 
     df = st.session_state.df.copy()
-    df.index = df.index + 1  # Show row numbers starting at 1
-    edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True, key="data_editor")
+    df.insert(0, "Row", df.index + 1)  # Show row numbers starting at 1
+    edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True, key="data_editor", column_config={
+        "Type": st.column_config.SelectboxColumn("Type", options=TYPE_OPTIONS),
+        "Category": st.column_config.SelectboxColumn("Category", options=CATEGORY_OPTIONS),
+    })
 
     st.session_state.df = edited_df.reset_index(drop=True)
+
+    cleaned_df = st.session_state.df.dropna(how="all")
+    cleaned_df["Amount"] = pd.to_numeric(cleaned_df["Amount"], errors="coerce").fillna(0.0)
 
     if st.button("💾 Save to Excel"):
         cleaned_df = st.session_state.df.dropna(how="all")
