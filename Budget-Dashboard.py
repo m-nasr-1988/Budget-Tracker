@@ -28,7 +28,12 @@ def save_month_to_excel(month, df):
 def read_month_data(month):
     xl = load_excel()
     if month in xl.sheet_names:
-        return xl.parse(month)
+        df = xl.parse(month)
+        # Ensure columns exist
+        for col in ["Type", "Description", "Amount"]:
+            if col not in df.columns:
+                df[col] = ""
+        return df[["Type", "Description", "Amount"]]
     return pd.DataFrame(columns=["Type", "Description", "Amount"])
 
 
@@ -43,9 +48,13 @@ def read_template(template_name):
     xl = load_excel()
     if template_name in xl.sheet_names:
         df = xl.parse(template_name)
+        for col in ["Type", "Description", "Amount"]:
+            if col not in df.columns:
+                df[col] = ""
         df["Amount"] = ""  # Clear values
-        return df
+        return df[["Type", "Description", "Amount"]]
     return pd.DataFrame(columns=["Type", "Description", "Amount"])
+
 
 # Format helpers
 def format_currency(value):
@@ -69,14 +78,18 @@ if selected_month == "+ New Month":
     use_template = st.sidebar.checkbox("Load from template?")
     template_list = [s for s in months_existing if s != TEMPLATE_SHEET]
     selected_template = st.sidebar.selectbox("Template to load", template_list) if use_template else None
-    if st.sidebar.button("➕ Create Month"):
-        if new_month_name:
-            if use_template and selected_template:
-                df_month = read_template(selected_template)
-            else:
-                df_month = pd.DataFrame(columns=["Type", "Description", "Amount"])
-            save_month_to_excel(new_month_name, df_month)
-            st.rerun()
+if st.sidebar.button("➕ Create Month"):
+    if new_month_name:
+        if use_template and selected_template:
+            df_month = read_template(selected_template)
+        else:
+            # Initialize with 1 income and 1 expense row for convenience
+            df_month = pd.DataFrame([
+                {"Type": "Income", "Description": "", "Amount": ""},
+                {"Type": "Expense", "Description": "", "Amount": ""}
+            ])
+        save_month_to_excel(new_month_name, df_month)
+        st.rerun()
         else:
             st.sidebar.warning("Please enter a valid month name.")
 
