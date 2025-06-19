@@ -102,25 +102,37 @@ if current_month and current_month != "+ New Month":
     df["Description"] = df["Description"].astype(str)
 
     # Display editable table with dropdowns
-    edited_df = st.data_editor(
-        df,
-        num_rows="dynamic",
-        column_config={
-            "Type": st.column_config.SelectboxColumn("Type", options=type_options),
-            "Category": st.column_config.SelectboxColumn("Category", options=category_options),
-            "Amount": st.column_config.NumberColumn("Amount", format=",.0f", step=1.0),
-            "Description": st.column_config.TextColumn("Description")
-        },
-        use_container_width=True,
-        hide_index=False  # Show row numbers
-    )
+    from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
+    from st_aggrid.shared import GridUpdateMode
 
-    def color_rows(val):
-        if val["Type"] == "Income":
-            return ['background-color: #d2f8d2']*len(val)
-        elif val["Type"] == "Expense":
-            return ['background-color: #fbdcdc']*len(val)
-        return ['']*len(val)
+    # Build grid options
+    gb = GridOptionsBuilder.from_dataframe(df)
+    gb.configure_column("Type", editable=True, cellEditor="agSelectCellEditor", cellEditorParams={'values': type_options})
+    gb.configure_column("Category", editable=True, cellEditor="agSelectCellEditor", cellEditorParams={'values': category_options})
+    gb.configure_column("Amount", editable=True, type=["numericColumn"], precision=0)
+    gb.configure_column("Description", editable=True)
+    gb.configure_selection(selection_mode="multiple", use_checkbox=True)
+
+    # Define row coloring based on Type
+    row_style_jscode = JsCode("""
+    function(params) {
+      if (params.data.Type === 'Income') { return {'backgroundColor':'#d4f8d4'}; }
+      if (params.data.Type === 'Expense') { return {'backgroundColor':'#f8d4d4'}; }
+    };
+    """)
+    gb.configure_grid_options(getRowStyle=row_style_jscode)
+
+    grid_response = AgGrid(
+        df,
+        gridOptions=gb.build(),
+        update_mode=GridUpdateMode.VALUE_CHANGED,
+        allow_unsafe_jscode=True,
+        enable_enterprise_modules=False,
+        fit_columns_on_grid_load=True,
+        height=400,
+    )
+    edited_df = grid_response['data']
+
 
     # Save manually to Excel
     if st.button("💾 Save to Excel"):
