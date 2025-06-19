@@ -98,7 +98,10 @@ if current_month and current_month != "+ New Month":
             ])
 
     df = st.session_state.df.copy()
-    df.insert(0, "Row", df.index + 1)  # Show row numbers starting at 1
+    if "Row" not in df.columns:
+        df.insert(0, "Row", df.index + 1)
+    else:
+        df["Row"] = df.index + 1
     edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True, key="data_editor", column_config={
         "Type": st.column_config.SelectboxColumn("Type", options=TYPE_OPTIONS),
         "Category": st.column_config.SelectboxColumn("Category", options=CATEGORY_OPTIONS),
