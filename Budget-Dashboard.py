@@ -45,7 +45,7 @@ def save_to_excel(sheet_name, df):
 # UI Sidebar
 st.sidebar.title("📊 Budget Tracker")
 existing_sheets = load_excel().sheet_names if DATA_FILE.exists() else []
-months = [s for s in existing_sheets if not s.startswith(TEMPLATE_SHEET_PREFIX)]
+months = [s for s in existing_sheets if not s.startswith(TEMPLATE_SHEET_PREFIX) and s.lower() != "sheet1"]
 templates = [s.replace(TEMPLATE_SHEET_PREFIX, "") for s in existing_sheets if s.startswith(TEMPLATE_SHEET_PREFIX)]
 
 selected_month = st.sidebar.selectbox("Select Month", ["+ New Month"] + months)
@@ -78,6 +78,13 @@ if current_month and current_month != "+ New Month":
     df = read_sheet(current_month)
 
     # Display editable table with dropdowns
+
+    df = df.fillna({"Type": "Expense", "Category": "", "Description": "", "Amount": 0})
+    df["Type"] = df["Type"].astype(str)
+    df["Category"] = df["Category"].astype(str)
+    df["Description"] = df["Description"].astype(str)
+    df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
+    
     edited_df = st.data_editor(
         df,
         num_rows="dynamic",
