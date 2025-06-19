@@ -49,6 +49,7 @@ def read_sheet(sheet_name):
         for col in ["Type", "Category", "Description", "Amount"]:
             if col not in df.columns:
                 df[col] = ""
+        df["Amount"] = pd.to_numeric(df["Amount"], errors='coerce').fillna(0.0)
         return df[["Type", "Category", "Description", "Amount"]]
     return pd.DataFrame(columns=["Type", "Category", "Description", "Amount"])
 
@@ -79,7 +80,7 @@ if selected_month == "+ New Month":
                 df_month = pd.DataFrame([
                     {"Type": "Income", "Category": "", "Description": "", "Amount": 0.0},
                     {"Type": "Expense", "Category": "", "Description": "", "Amount": 0.0}
-                ])
+                ], columns=["Type", "Category", "Description", "Amount"])
 
             save_to_excel(new_month_name, df_month)
             cleanup_placeholder_sheet()
@@ -102,7 +103,6 @@ if current_month and current_month != "+ New Month":
 
     # Display editable table with dropdowns
     edited_df = st.data_editor(
-
         df,
         num_rows="dynamic",
         column_config={
@@ -121,11 +121,6 @@ if current_month and current_month != "+ New Month":
         elif val["Type"] == "Expense":
             return ['background-color: #fbdcdc']*len(val)
         return ['']*len(val)
-
-    # Styled read-only preview
-    st.subheader("🖌️ Styled Preview")
-    styled_df = edited_df.style.apply(color_rows, axis=1)
-    st.dataframe(styled_df, use_container_width=True)
 
     # Save manually to Excel
     if st.button("💾 Save to Excel"):
