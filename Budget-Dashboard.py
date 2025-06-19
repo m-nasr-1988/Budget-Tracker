@@ -76,7 +76,7 @@ if selected_month == "+ New Month":
             else:
                 df_month = pd.DataFrame(columns=["Type", "Description", "Amount"])
             save_month_to_excel(new_month_name, df_month)
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.sidebar.warning("Please enter a valid month name.")
 
