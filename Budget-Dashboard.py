@@ -92,8 +92,15 @@ if current_month and current_month != "+ New Month":
     st.header(f"📅 Editing: {current_month}")
     df = read_sheet(current_month)
 
+    # Ensure correct data types
+    df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0.0)
+    df["Type"] = df["Type"].astype(str)
+    df["Category"] = df["Category"].astype(str)
+    df["Description"] = df["Description"].astype(str)
+
     # Display editable table with dropdowns
     edited_df = st.data_editor(
+
         df,
         num_rows="dynamic",
         column_config={
