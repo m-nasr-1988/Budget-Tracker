@@ -69,7 +69,7 @@ if selected_month == "+ New Month":
                 df_month["Amount"] = 0.0
             else:
                 df_month = pd.DataFrame([
-                    {"Type": "Income", "Category": "Salary", "Description": "", "Amount": 0.0},
+                    {"Type": "Income", "Category": "", "Description": "", "Amount": 0.0},
                     {"Type": "Expense", "Category": "", "Description": "", "Amount": 0.0}
                 ])
             save_to_excel(new_month_name, df_month)
@@ -89,11 +89,21 @@ if current_month and current_month != "+ New Month":
     st.header(f"📅 Editing: {current_month}")
     df = read_sheet(current_month)
 
-    # Setup AgGrid
+    # Add row number column
+    df.insert(0, "Row", range(1, len(df) + 1))
+
+    # Add new row
+    if st.button("➕ Add New Row"):
+        new_row = {"Row": len(df) + 1, "Type": "Expense", "Category": "", "Description": "", "Amount": 0.0}
+        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+    
+
+    # Setup AgGrid with editable columns
     gb = GridOptionsBuilder.from_dataframe(df)
+    gb.configure_column("Row", editable=False)  # Show row numbers
     gb.configure_column("Type", editable=True, cellEditor="agSelectCellEditor", cellEditorParams={'values': type_options})
     gb.configure_column("Category", editable=True, cellEditor="agSelectCellEditor", cellEditorParams={'values': category_options})
-    gb.configure_column("Amount", editable=True, type=["numericColumn"], precision=0)
+    gb.configure_column("Amount", editable=True, type=["numericColumn"])
     gb.configure_column("Description", editable=True)
 
     # Add row styling based on Type
@@ -106,7 +116,7 @@ if current_month and current_month != "+ New Month":
         }
     };
     """)
-    gb.configure_grid_options(getRowStyle=row_style_jscode)
+    gb.configure_grid_options(getRowStyle=row_style_jscode, singleClickEdit=True)
 
     grid_response = AgGrid(
         df,
