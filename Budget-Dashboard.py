@@ -1,134 +1,125 @@
-# streamlit_budget_app.py
-
+# Streamlit Budget Tracker with Enhancements
 import streamlit as st
 import pandas as pd
 import os
-from datetime import datetime
 from openpyxl import load_workbook
+from pathlib import Path
+
+st.set_page_config(page_title="Budget Tracker", layout="wide")
 
 # Constants
-EXCEL_PATH = "data/budget_tracker.xlsx"
-TEMPLATE_SHEET = "Templates"
+DATA_FILE = Path("data/budget_tracker.xlsx")
+TEMPLATE_SHEET_PREFIX = "Template_"
 
-# Utility Functions
+# Predefined dropdown options
+type_options = ["Income", "Expense"]
+category_options = ["Salary", "Rent", "Groceries", "Utilities", "Fuel", "Phone", "Internet", "Insurance", "Gym", "Camp", "Other"]
 
+# Ensure Excel file exists
+def init_excel():
+    if not DATA_FILE.exists():
+        with pd.ExcelWriter(DATA_FILE, engine='openpyxl') as writer:
+            df = pd.DataFrame(columns=["Type", "Category", "Description", "Amount"])
+            df.to_excel(writer, sheet_name="Sheet1", index=False)
+
+# Load workbook
 def load_excel():
-    if os.path.exists(EXCEL_PATH):
-        return pd.ExcelFile(EXCEL_PATH)
-    else:
-        wb = load_workbook(filename=None)
-        wb.save(EXCEL_PATH)
-        return pd.ExcelFile(EXCEL_PATH)
+    return pd.ExcelFile(DATA_FILE)
 
-def save_month_to_excel(month, df):
-    with pd.ExcelWriter(EXCEL_PATH, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
-        df.to_excel(writer, sheet_name=month, index=False)
-
-
-def read_month_data(month):
+# Read month or template data
+def read_sheet(sheet_name):
     xl = load_excel()
-    if month in xl.sheet_names:
-        df = xl.parse(month)
-        # Ensure columns exist
-        for col in ["Type", "Description", "Amount"]:
+    if sheet_name in xl.sheet_names:
+        df = xl.parse(sheet_name)
+        for col in ["Type", "Category", "Description", "Amount"]:
             if col not in df.columns:
                 df[col] = ""
-        return df[["Type", "Description", "Amount"]]
-    return pd.DataFrame(columns=["Type", "Description", "Amount"])
+        return df[["Type", "Category", "Description", "Amount"]]
+    return pd.DataFrame(columns=["Type", "Category", "Description", "Amount"])
 
+# Save DataFrame to sheet
+def save_to_excel(sheet_name, df):
+    with pd.ExcelWriter(DATA_FILE, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+        df.to_excel(writer, sheet_name=sheet_name, index=False)
 
-def save_template(template_name, df):
-    df_copy = df.copy()
-    df_copy["Amount"] = ""
-    with pd.ExcelWriter(EXCEL_PATH, engine="openpyxl", mode="a", if_sheet_exists="overlay") as writer:
-        df_copy.to_excel(writer, sheet_name=template_name, index=False)
+# UI Sidebar
+st.sidebar.title("📊 Budget Tracker")
+existing_sheets = load_excel().sheet_names if DATA_FILE.exists() else []
+months = [s for s in existing_sheets if not s.startswith(TEMPLATE_SHEET_PREFIX)]
+templates = [s.replace(TEMPLATE_SHEET_PREFIX, "") for s in existing_sheets if s.startswith(TEMPLATE_SHEET_PREFIX)]
 
+selected_month = st.sidebar.selectbox("Select Month", ["+ New Month"] + months)
 
-def read_template(template_name):
-    xl = load_excel()
-    if template_name in xl.sheet_names:
-        df = xl.parse(template_name)
-        for col in ["Type", "Description", "Amount"]:
-            if col not in df.columns:
-                df[col] = ""
-        df["Amount"] = ""  # Clear values
-        return df[["Type", "Description", "Amount"]]
-    return pd.DataFrame(columns=["Type", "Description", "Amount"])
-
-
-# Format helpers
-def format_currency(value):
-    try:
-        return "{:,}".format(int(value))
-    except:
-        return value
-
-# App Start
-st.set_page_config(page_title="Monthly Budget Tracker", layout="wide")
-st.title("📊 Monthly Budget Tracker")
-
-# Sidebar
-st.sidebar.header("🔧 Manage Budget")
-months_existing = load_excel().sheet_names
-
-selected_month = st.sidebar.selectbox("Select or create a month", months_existing + ["+ New Month"])
-
+# Month creation
 if selected_month == "+ New Month":
     new_month_name = st.sidebar.text_input("Enter new month name (e.g., July - 2025)")
-    use_template = st.sidebar.checkbox("Load from template?")
-    template_list = [s for s in months_existing if s != TEMPLATE_SHEET]
-    selected_template = st.sidebar.selectbox("Template to load", template_list) if use_template else None
-if st.sidebar.button("➕ Create Month"):
-    if new_month_name:
-        if use_template and selected_template:
-            df_month = read_template(selected_template)
-        else:
-            # Initialize with 1 income and 1 expense row for convenience
-            df_month = pd.DataFrame([
-                {"Type": "Income", "Description": "", "Amount": ""},
-                {"Type": "Expense", "Description": "", "Amount": ""}
-            ])
-        save_month_to_excel(new_month_name, df_month)
-        st.rerun()
-    else:
-        st.sidebar.warning("Please enter a valid month name.")
+    use_template = st.sidebar.checkbox("Use a template?")
+    selected_template = st.sidebar.selectbox("Select template", ["None"] + templates) if use_template else None
+    if st.sidebar.button("➕ Create Month"):
+        if new_month_name:
+            if use_template and selected_template and selected_template != "None":
+                df_month = read_sheet(TEMPLATE_SHEET_PREFIX + selected_template)
+                df_month["Amount"] = ""  # Clear all amount fields
+            else:
+                df_month = pd.DataFrame([
+                    {"Type": "Income", "Category": "Salary", "Description": "", "Amount": ""},
+                    {"Type": "Expense", "Category": "", "Description": "", "Amount": ""}
+                ])
+            save_to_excel(new_month_name, df_month)
+            st.session_state["selected_month"] = new_month_name
+            st.rerun()
+else:
+    st.session_state["selected_month"] = selected_month
 
-elif selected_month:
-    df = read_month_data(selected_month)
-    st.subheader(f"🗓️ Editing: {selected_month}")
+# Active month sheet
+current_month = st.session_state.get("selected_month")
+if current_month and current_month != "+ New Month":
+    st.header(f"📅 Editing: {current_month}")
+    df = read_sheet(current_month)
 
-    st.markdown("### 🧾 Monthly Entries")
-
+    # Display editable table with dropdowns
     edited_df = st.data_editor(
         df,
         num_rows="dynamic",
-        use_container_width=True,
-        column_config={"Amount": st.column_config.NumberColumn(format=",", step=1)}
+        column_config={
+            "Type": st.column_config.SelectboxColumn("Type", options=type_options),
+            "Category": st.column_config.SelectboxColumn("Category", options=category_options),
+            "Amount": st.column_config.NumberColumn("Amount", format=",.0f", step=1.0),
+            "Description": st.column_config.TextColumn("Description")
+        },
+        use_container_width=True
     )
 
-    total_in = edited_df[edited_df["Type"] == "Income"]["Amount"].sum()
-    total_out = edited_df[edited_df["Type"] == "Expense"]["Amount"].sum()
-    remaining = total_in - total_out
+    # Save manually to Excel
+    if st.button("💾 Save to Excel"):
+        save_to_excel(current_month, edited_df)
+        st.success(f"Saved to {current_month} ✅")
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("💰 Total In", format_currency(total_in))
-    col2.metric("💸 Total Out", format_currency(total_out))
-    col3.metric("💼 Remaining", format_currency(remaining))
+    # Save as template
+    with st.expander("🗂 Save as Template"):
+        template_name = st.text_input("Template name")
+        if st.button("📁 Save Template"):
+            if template_name:
+                df_template = edited_df.copy()
+                df_template["Amount"] = ""  # Clear values
+                save_to_excel(TEMPLATE_SHEET_PREFIX + template_name, df_template)
+                st.success(f"Saved template: {template_name}")
 
-    st.markdown("---")
-    col_save, col_template = st.columns([1, 2])
-    
-    with col_save:
-        if st.button("💾 Save to Excel"):
-            save_month_to_excel(selected_month, edited_df)
-            st.success("Data saved successfully!")
+    # Live Summary
+    col1, col2 = st.columns(2)
+    with col1:
+        total_in = edited_df[edited_df["Type"] == "Income"]["Amount"].sum()
+        total_out = edited_df[edited_df["Type"] == "Expense"]["Amount"].sum()
+        st.metric("💰 Total In", f"{total_in:,.0f}")
+        st.metric("💸 Total Out", f"{total_out:,.0f}")
+    with col2:
+        st.metric("📉 Remaining", f"{(total_in - total_out):,.0f}")
 
-    with col_template:
-        with st.expander("💠 Save this as Template"):
-            template_name = st.text_input("Enter template name")
-            if st.button("Save Template"):
-                if template_name:
-                    save_template(template_name, edited_df)
-                    st.success(f"Template '{template_name}' saved!")
-                else:
-                    st.warning("Please enter a name for the template")
+    # Optional: Bar chart
+    st.subheader("📊 Breakdown by Category")
+    if not edited_df.empty:
+        category_summary = edited_df[edited_df["Type"] == "Expense"].groupby("Category")["Amount"].sum().sort_values(ascending=False)
+        st.bar_chart(category_summary)
+
+else:
+    st.info("👈 Please select or create a month from the sidebar.")
