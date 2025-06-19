@@ -1,10 +1,8 @@
-# Streamlit Budget Tracker (AgGrid Full Support Version)
+# Streamlit Budget Tracker (Basic Editable Table Version)
 import streamlit as st
 import pandas as pd
 from openpyxl import load_workbook
 from pathlib import Path
-from st_aggrid import AgGrid, GridOptionsBuilder, JsCode
-from st_aggrid.shared import GridUpdateMode
 
 st.set_page_config(page_title="Budget Tracker", layout="wide")
 
@@ -72,15 +70,16 @@ if selected_month == "+ New Month":
             df_month["Amount"] = 0.0
         else:
             df_month = pd.DataFrame([
-                {"Type": "Income", "Category": "Salary", "Description": "", "Amount": 0.0},
-                {"Type": "Expense", "Category": "", "Description": "", "Amount": 0.0}
+                {"Type": "Income", "Category": "Salary", "Description": "", "Amount": 0.0}
             ])
         save_to_excel(new_month_name, df_month)
-        if "Sheet1" in existing_sheets:
-            wb = load_workbook(DATA_FILE)
-            if "Sheet1" in wb.sheetnames:
-                del wb["Sheet1"]
-                wb.save(DATA_FILE)
+
+        # Remove "Sheet1" if it exists after first month is created
+        wb = load_workbook(DATA_FILE)
+        if "Sheet1" in wb.sheetnames:
+            del wb["Sheet1"]
+            wb.save(DATA_FILE)
+
         st.session_state["selected_month"] = new_month_name
         st.rerun()
 else:
@@ -93,52 +92,22 @@ if current_month and current_month != "+ New Month":
 
     if "df" not in st.session_state:
         st.session_state.df = read_sheet(current_month)
+        if st.session_state.df.empty:
+            st.session_state.df = pd.DataFrame([
+                {"Type": "Income", "Category": "Salary", "Description": "", "Amount": 0.0}
+            ])
 
     df = st.session_state.df.copy()
+    df.index = df.index + 1  # Show row numbers starting at 1
+    edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True, key="data_editor")
 
-    # Add empty row at the bottom
-    empty_row = pd.DataFrame([{"Type": "Income", "Category": "", "Description": "", "Amount": 0.0}])
-    df = pd.concat([df, empty_row], ignore_index=True)
+    st.session_state.df = edited_df.reset_index(drop=True)
 
-    # AgGrid config
-    gb = GridOptionsBuilder.from_dataframe(df)
-    gb.configure_default_column(resizable=True, wrapText=True, autoHeight=True)
-    gb.configure_column("Type", editable=True, cellEditor="agSelectCellEditor", cellEditorParams={'values': TYPE_OPTIONS})
-    gb.configure_column("Category", editable=True, cellEditor="agSelectCellEditor", cellEditorParams={'values': CATEGORY_OPTIONS})
-    gb.configure_column("Description", editable=True)
-    gb.configure_column("Amount", editable=True, type=["numericColumn"], precision=2, valueFormatter="x.toLocaleString()")
-
-    row_style = JsCode("""
-    function(params) {
-        if (params.data.Type === 'Income') {
-            return { 'backgroundColor': '#e8f5e9' };
-        } else if (params.data.Type === 'Expense') {
-            return { 'backgroundColor': '#ffebee' };
-        }
-    };
-    """)
-    gb.configure_grid_options(getRowStyle=row_style)
-    gb.configure_grid_options(domLayout='autoHeight')
-
-    grid = AgGrid(
-        df,
-        gridOptions=gb.build(),
-        update_mode=GridUpdateMode.VALUE_CHANGED,
-        allow_unsafe_jscode=True,
-        fit_columns_on_grid_load=True,
-        enable_enterprise_modules=False,
-        reload_data=False
-    )
-
-    st.session_state.df = grid["data"]
-
-    # Save button
     if st.button("💾 Save to Excel"):
         cleaned_df = st.session_state.df.dropna(how="all")
         save_to_excel(current_month, cleaned_df)
         st.success(f"Saved to {current_month} ✅")
 
-    # Save as Template
     with st.expander("🗂 Save as Template"):
         template_name = st.text_input("Template name")
         if st.button("📁 Save Template") and template_name:
@@ -147,7 +116,6 @@ if current_month and current_month != "+ New Month":
             save_to_excel(TEMPLATE_SHEET_PREFIX + template_name, df_template)
             st.success(f"Saved template: {template_name}")
 
-    # Summary
     col1, col2 = st.columns(2)
     with col1:
         total_in = st.session_state.df[st.session_state.df["Type"] == "Income"]["Amount"].sum()
@@ -157,11 +125,9 @@ if current_month and current_month != "+ New Month":
     with col2:
         st.metric("📉 Remaining", f"{(total_in - total_out):,.0f}")
 
-    # Chart
     st.subheader("📊 Breakdown by Category")
     if not st.session_state.df.empty:
         category_summary = st.session_state.df[st.session_state.df["Type"] == "Expense"].groupby("Category")["Amount"].sum().sort_values(ascending=False)
         st.bar_chart(category_summary)
-
 else:
     st.info("👈 Please select or create a month from the sidebar.")
