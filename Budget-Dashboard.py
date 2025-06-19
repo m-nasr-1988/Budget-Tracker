@@ -90,8 +90,8 @@ if st.sidebar.button("➕ Create Month"):
             ])
         save_month_to_excel(new_month_name, df_month)
         st.rerun()
-        else:
-            st.sidebar.warning("Please enter a valid month name.")
+    else:
+        st.sidebar.warning("Please enter a valid month name.")
 
 elif selected_month:
     df = read_month_data(selected_month)
