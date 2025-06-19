@@ -4,6 +4,7 @@ import pandas as pd
 import os
 from openpyxl import load_workbook
 from pathlib import Path
+import numpy as np
 
 st.set_page_config(page_title="Budget Tracker", layout="wide")
 
@@ -76,9 +77,10 @@ if selected_month == "+ New Month":
                 df_month["Amount"] = 0.0  # Clear all amount fields
             else:
                 df_month = pd.DataFrame([
-                    {"Type": "Income", "Category": "Salary", "Description": "", "Amount": 0.0},
+                    {"Type": "Income", "Category": "", "Description": "", "Amount": 0.0},
                     {"Type": "Expense", "Category": "", "Description": "", "Amount": 0.0}
                 ])
+
             save_to_excel(new_month_name, df_month)
             cleanup_placeholder_sheet()
             st.session_state["selected_month"] = new_month_name
@@ -109,8 +111,21 @@ if current_month and current_month != "+ New Month":
             "Amount": st.column_config.NumberColumn("Amount", format=",.0f", step=1.0),
             "Description": st.column_config.TextColumn("Description")
         },
-        use_container_width=True
+        use_container_width=True,
+        hide_index=False  # Show row numbers
     )
+
+    def color_rows(val):
+        if val["Type"] == "Income":
+            return ['background-color: #d2f8d2']*len(val)
+        elif val["Type"] == "Expense":
+            return ['background-color: #fbdcdc']*len(val)
+        return ['']*len(val)
+
+    # Styled read-only preview
+    st.subheader("🖌️ Styled Preview")
+    styled_df = edited_df.style.apply(color_rows, axis=1)
+    st.dataframe(styled_df, use_container_width=True)
 
     # Save manually to Excel
     if st.button("💾 Save to Excel"):
