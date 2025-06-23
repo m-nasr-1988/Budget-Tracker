@@ -1,8 +1,9 @@
-# Streamlit Budget Tracker (Basic Editable Table Version)
+# Streamlit Budget Tracker (AgGrid Editable Table Version)
 import streamlit as st
 import pandas as pd
 from openpyxl import load_workbook
 from pathlib import Path
+from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 
 st.set_page_config(page_title="Budget Tracker", layout="wide")
 
@@ -74,7 +75,6 @@ if selected_month == "+ New Month":
             ])
         save_to_excel(new_month_name, df_month)
 
-        # Remove "Sheet1" if it exists after first month is created
         wb = load_workbook(DATA_FILE)
         if "Sheet1" in wb.sheetnames:
             del wb["Sheet1"]
@@ -88,7 +88,7 @@ else:
 # Active sheet
 current_month = st.session_state.get("selected_month")
 if current_month and current_month != "+ New Month":
-    st.header(f"📅 Editing: {current_month}")
+    st.header(f"🗕 Editing: {current_month}")
 
     if "df" not in st.session_state:
         st.session_state.df = read_sheet(current_month)
@@ -97,44 +97,37 @@ if current_month and current_month != "+ New Month":
                 {"Type": "Income", "Category": "Salary", "Description": "", "Amount": 0.0}
             ])
 
-    # Work on a copy for editing (display only)
-    df_display = st.session_state.df.copy()
+    df = st.session_state.df.copy()
+    df.insert(0, "Row", df.index + 1)
 
-    # Add a Row number for display only
-    df_display.insert(0, "Row", range(1, len(df_display) + 1))
+    gb = GridOptionsBuilder.from_dataframe(df)
+    gb.configure_columns(["Type"], cellEditor="agSelectCellEditor", cellEditorParams={"values": TYPE_OPTIONS})
+    gb.configure_columns(["Category"], cellEditor="agSelectCellEditor", cellEditorParams={"values": CATEGORY_OPTIONS})
+    gb.configure_grid_options(enableRangeSelection=True, editable=True)
+    grid_options = gb.build()
 
-    # Show editable table (excluding the Row column from being editable)
-    edited_df = st.data_editor(
-        df_display,
-        num_rows="dynamic",
-        use_container_width=True,
-        key="data_editor",
-        column_config={
-            "Row": st.column_config.NumberColumn("Row", disabled=True),
-            "Type": st.column_config.SelectboxColumn("Type", options=TYPE_OPTIONS),
-            "Category": st.column_config.SelectboxColumn("Category", options=CATEGORY_OPTIONS),
-            "Description": st.column_config.TextColumn("Description"),
-            "Amount": st.column_config.NumberColumn("Amount", format="%.2f"),
-        }
+    grid_response = AgGrid(
+        df,
+        gridOptions=grid_options,
+        update_mode=GridUpdateMode.VALUE_CHANGED,
+        allow_unsafe_jscode=True,
+        fit_columns_on_grid_load=True,
+        height=400,
+        enable_enterprise_modules=False,
+        theme="streamlit"
     )
 
-    # Remove the Row column before saving back
-    edited_df = edited_df.drop(columns=["Row"])
-
-    # Clean up Amount field
+    edited_df = grid_response["data"]
+    edited_df.drop(columns=["Row"], inplace=True)
     edited_df["Amount"] = pd.to_numeric(edited_df["Amount"], errors="coerce").fillna(0.0)
+    st.session_state.df = edited_df
 
-    st.session_state.df = edited_df.reset_index(drop=True)
-
-    cleaned_df = st.session_state.df.dropna(how="all")
-    cleaned_df["Amount"] = pd.to_numeric(cleaned_df["Amount"], errors="coerce").fillna(0.0)
-
-    if st.button("💾 Save to Excel"):
+    if st.button("📏 Save to Excel"):
         cleaned_df = st.session_state.df.dropna(how="all")
         save_to_excel(current_month, cleaned_df)
         st.success(f"Saved to {current_month} ✅")
 
-    with st.expander("🗂 Save as Template"):
+    with st.expander("📜 Save as Template"):
         template_name = st.text_input("Template name")
         if st.button("📁 Save Template") and template_name:
             df_template = st.session_state.df.copy()
