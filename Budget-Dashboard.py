@@ -97,15 +97,32 @@ if current_month and current_month != "+ New Month":
                 {"Type": "Income", "Category": "Salary", "Description": "", "Amount": 0.0}
             ])
 
-    df = st.session_state.df.copy()
-    if "Row" not in df.columns:
-        df.insert(0, "Row", df.index + 1)
-    else:
-        df["Row"] = df.index + 1
-    edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True, key="data_editor", column_config={
-        "Type": st.column_config.SelectboxColumn("Type", options=TYPE_OPTIONS),
-        "Category": st.column_config.SelectboxColumn("Category", options=CATEGORY_OPTIONS),
-    })
+    # Work on a copy for editing (display only)
+    df_display = st.session_state.df.copy()
+
+    # Add a Row number for display only
+    df_display.insert(0, "Row", range(1, len(df_display) + 1))
+
+    # Show editable table (excluding the Row column from being editable)
+    edited_df = st.data_editor(
+        df_display,
+        num_rows="dynamic",
+        use_container_width=True,
+        key="data_editor",
+        column_config={
+            "Row": st.column_config.NumberColumn("Row", disabled=True),
+            "Type": st.column_config.SelectboxColumn("Type", options=TYPE_OPTIONS),
+            "Category": st.column_config.SelectboxColumn("Category", options=CATEGORY_OPTIONS),
+            "Description": st.column_config.TextColumn("Description"),
+            "Amount": st.column_config.NumberColumn("Amount", format="%.2f"),
+        }
+    )
+
+    # Remove the Row column before saving back
+    edited_df = edited_df.drop(columns=["Row"])
+
+    # Clean up Amount field
+    edited_df["Amount"] = pd.to_numeric(edited_df["Amount"], errors="coerce").fillna(0.0)
 
     st.session_state.df = edited_df.reset_index(drop=True)
 
