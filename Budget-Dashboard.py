@@ -1,4 +1,4 @@
-# Streamlit Budget Tracker (AgGrid Editable Table Version)
+# Streamlit Budget Tracker with AgGrid (Stable Editable Table)
 import streamlit as st
 import pandas as pd
 from openpyxl import load_workbook
@@ -31,7 +31,7 @@ def read_sheet(sheet_name):
             if col not in df.columns:
                 df[col] = ""
         df = df[COLUMNS].fillna("")
-        df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce")
+        df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0.0)
         return df
     return pd.DataFrame(columns=COLUMNS)
 
@@ -70,11 +70,12 @@ if selected_month == "+ New Month":
             df_month = read_sheet(TEMPLATE_SHEET_PREFIX + selected_template)
             df_month["Amount"] = 0.0
         else:
-            df_month = pd.DataFrame([
-                {"Type": "Income", "Category": "", "Description": "", "Amount": 0.0}
-            ])
+            df_month = pd.DataFrame([{
+                "Type": "Income", "Category": "", "Description": "", "Amount": 0.0
+            }])
         save_to_excel(new_month_name, df_month)
 
+        # Remove "Sheet1" if exists
         wb = load_workbook(DATA_FILE)
         if "Sheet1" in wb.sheetnames:
             del wb["Sheet1"]
@@ -88,46 +89,47 @@ else:
 # Active sheet
 current_month = st.session_state.get("selected_month")
 if current_month and current_month != "+ New Month":
-    st.header(f"🗕 Editing: {current_month}")
+    st.header(f"📅 Editing: {current_month}")
 
     if "df" not in st.session_state:
         st.session_state.df = read_sheet(current_month)
         if st.session_state.df.empty:
-            st.session_state.df = pd.DataFrame([
-                {"Type": "Income", "Category": "Salary", "Description": "", "Amount": 0.0}
-            ])
+            st.session_state.df = pd.DataFrame([{
+                "Type": "Income", "Category": "Salary", "Description": "", "Amount": 0.0
+            }])
 
     df = st.session_state.df.copy()
-    df.insert(0, "Row", df.index + 1)
+    df.insert(0, "Row", range(1, len(df) + 1))
 
     gb = GridOptionsBuilder.from_dataframe(df)
-    gb.configure_columns(["Type"], cellEditor="agSelectCellEditor", cellEditorParams={"values": TYPE_OPTIONS})
-    gb.configure_columns(["Category"], cellEditor="agSelectCellEditor", cellEditorParams={"values": CATEGORY_OPTIONS})
-    gb.configure_grid_options(enableRangeSelection=True, editable=True)
+    gb.configure_default_column(editable=True, resizable=True)
+    gb.configure_column("Type", editable=True, cellEditor="agSelectCellEditor", cellEditorParams={"values": TYPE_OPTIONS})
+    gb.configure_column("Category", editable=True, cellEditor="agSelectCellEditor", cellEditorParams={"values": CATEGORY_OPTIONS})
+    gb.configure_column("Amount", type=["numericColumn", "numberColumnFilter", "customNumericFormat"], precision=2)
+    gb.configure_grid_options(enableRangeSelection=True, rowSelection="multiple", suppressRowClickSelection=False)
+
     grid_options = gb.build()
 
-    grid_response = AgGrid(
+    grid_return = AgGrid(
         df,
         gridOptions=grid_options,
-        update_mode=GridUpdateMode.VALUE_CHANGED,
+        update_mode=GridUpdateMode.MODEL_CHANGED,
         allow_unsafe_jscode=True,
+        theme="material",
         fit_columns_on_grid_load=True,
-        height=400,
-        enable_enterprise_modules=False,
-        theme="streamlit"
+        enable_enterprise_modules=False
     )
 
-    edited_df = grid_response["data"]
-    edited_df.drop(columns=["Row"], inplace=True)
+    edited_df = grid_return["data"]
     edited_df["Amount"] = pd.to_numeric(edited_df["Amount"], errors="coerce").fillna(0.0)
+    edited_df = edited_df.drop(columns=["Row"])
     st.session_state.df = edited_df
 
-    if st.button("📏 Save to Excel"):
-        cleaned_df = st.session_state.df.dropna(how="all")
-        save_to_excel(current_month, cleaned_df)
+    if st.button("💾 Save to Excel"):
+        save_to_excel(current_month, st.session_state.df)
         st.success(f"Saved to {current_month} ✅")
 
-    with st.expander("📜 Save as Template"):
+    with st.expander("🗂 Save as Template"):
         template_name = st.text_input("Template name")
         if st.button("📁 Save Template") and template_name:
             df_template = st.session_state.df.copy()
