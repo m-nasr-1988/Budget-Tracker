@@ -347,10 +347,10 @@ def auto_categorize(row, rules):
     return categorize_with_heuristics(row.get("source"), row.get("notes"), category)
 
 # ------------- Seed sample data -------------
-def seed_example_data(year: int):
-    # Provided sample for June
+def seed_example_data(year: int, skip_duplicates: bool = True, replace: bool = False) -> int:
     june = f"{year:04d}-06"
     jdate = date(year, 6, 1).isoformat()
+
     samples = [
         {"type":"Income","category":"Bank","source":"Bank","amount":23600,"status":"Paid"},
         {"type":"Income","category":"Cash/Saving","source":"Cash/Saving","amount":3000,"status":"Paid"},
@@ -363,7 +363,28 @@ def seed_example_data(year: int):
         {"type":"Expense","category":"Laya","source":"Laya","amount":150,"status":"Paid"},
         {"type":"Expense","category":"Phone","source":"Phone","amount":55,"status":"Pending"},
     ]
+
+    if replace:
+        conn = get_conn()
+        conn.execute("DELETE FROM entries WHERE period=? AND notes='seed'", (june,))
+        conn.commit()
+        conn.close()
+
+    existing_keys = set()
+    if skip_duplicates:
+        conn = get_conn()
+        rows = conn.execute(
+            "SELECT type, category, source, amount FROM entries WHERE period=? AND notes='seed'",
+            (june,)
+        ).fetchall()
+        conn.close()
+        existing_keys = {(r["type"], r["category"], r["source"], round(float(r["amount"]),2)) for r in rows}
+
+    added = 0
     for s in samples:
+        key = (s["type"], s["category"], s["source"], round(float(s["amount"]),2))
+        if skip_duplicates and key in existing_keys:
+            continue
         add_entry({
             "date": jdate,
             "period": june,
@@ -376,6 +397,8 @@ def seed_example_data(year: int):
             "is_manual": 1 if s["type"] == "Expense" else 0,
             "tags": ""
         })
+        added += 1
+    return added
 
 # ------------- Insights -------------
 def calc_month_summary(period: str):
@@ -444,10 +467,18 @@ with st.sidebar:
     st.session_state["period"] = sel_period
 
     st.markdown("---")
-    st.subheader("Quick actions")
-    if st.button("Seed example entries (June)", help="Adds example data for the current year"):
-        seed_example_data(year=date.today().year)
-        st.success("Example data added.")
+    st.subheader("Sample data")
+    st.caption("Adds 10 demo entries to June of the current year to preview charts.")
+    c1, c2 = st.columns(2)
+    skip_dups = c1.checkbox("Skip duplicates", value=True)
+    replace_seed = c2.checkbox("Replace existing", value=False, help="Remove previously added sample entries for June, then re-add fresh.")
+    if st.button("Add sample entries now"):
+        added = seed_example_data(year=date.today().year, skip_duplicates=skip_dups, replace=replace_seed)
+        if replace_seed:
+            st.success(f"Replaced sample data. Added {added} entries.")
+        else:
+            st.success(f"Added {added} new sample entries.")
+        st.rerun()
 
     st.markdown("---")
     st.caption("Tip: Deploy to Streamlit Cloud for a shareable link.")
@@ -486,13 +517,33 @@ with tabs[0]:
     if not budgets.empty:
         exp = summary["df"]
         exp = exp[(exp["type"]=="Expense") & (exp["period"]==st.session_state["period"])]
-        spent_by_cat = exp.groupby("category")["amount"].sum().to_dict()
-        for _, row in budgets.iterrows():
-            cat = row["category"]
-            budget_amt = row["amount"]
-            spent = spent_by_cat.get(cat, 0.0)
-            pct = 0 if budget_amt == 0 else min(100, 100 * spent / budget_amt)
-            st.progress(pct/100, text=f"{cat}: {spent:,.2f} / {budget_amt:,.2f} ({pct:.0f}%)")
+        spent_by_cat = exp.groupby("category")["amount"].sum()
+
+        dfb = budgets.merge(spent_by_cat.rename("spent"), how="left", left_on="category", right_index=True)
+        dfb["spent"] = dfb["spent"].fillna(0.0)
+        dfb["within"] = np.minimum(dfb["spent"], dfb["amount"])
+        dfb["over"] = np.maximum(0, dfb["spent"] - dfb["amount"])
+
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            y=dfb["category"], x=dfb["within"], orientation="h",
+            name="Within budget", marker_color="#2ecc71"
+        ))
+        fig.add_trace(go.Bar(
+            y=dfb["category"], x=dfb["over"], orientation="h",
+            name="Over budget", marker_color="#e74c3c"
+        ))
+        fig.update_layout(
+            barmode="stack",
+            title=f"Budget vs Spent — {st.session_state['period']}",
+            xaxis_title="Amount", yaxis_title="",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        total_budget = float(dfb["amount"].sum())
+        total_spent = float(dfb["spent"].sum())
+        st.caption(f"Total: spent {total_spent:,.2f} of budget {total_budget:,.2f}")
     else:
         st.info("No budgets set for this month. Go to the Budgets tab to add them.")
 
@@ -809,20 +860,113 @@ with tabs[5]:
 
 # Settings
 with tabs[6]:
-    st.subheader("Export")
-    dfp = load_entries_df(st.session_state["period"])
-    if not dfp.empty:
-        csv = dfp.to_csv(index=False).encode("utf-8")
-        st.download_button("Download CSV for selected month", csv, file_name=f"entries_{st.session_state['period']}.csv", mime="text/csv")
+    st.subheader("Export (selected month)")
+    df_month = load_entries_df(st.session_state["period"])
+    if not df_month.empty:
+        csv_month = df_month.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "Download CSV for selected month",
+            csv_month,
+            file_name=f"entries_{st.session_state['period']}.csv",
+            mime="text/csv"
+        )
     else:
         st.info("No entries to export for this month.")
 
+    st.markdown("### Export all data")
+    df_all = load_entries_df()
+    if not df_all.empty:
+        csv_all = df_all.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "Download full CSV (all months)",
+            csv_all,
+            file_name="entries_all.csv",
+            mime="text/csv"
+        )
+    else:
+        st.caption("No data available yet.")
+
+    # Optional: quick DB backup download
+    st.markdown("### Database backup")
+    if DB_PATH.exists():
+        with open(DB_PATH, "rb") as f:
+            st.download_button(
+                "Download SQLite database (budget.db)",
+                f,
+                file_name="budget.db",
+                mime="application/octet-stream"
+            )
+    else:
+        st.caption("Database file not found (it will be created automatically when you add data).")
+
     st.markdown("---")
+    with st.expander("Manage sample data (June)"):
+        st.caption("These are the demo rows inserted via the 'Add sample entries' action and labeled with notes='seed'.")
+        c1, c2 = st.columns(2)
+        yr = c1.number_input("Year for June sample", min_value=2000, max_value=2100, value=date.today().year, step=1)
+        remove_all_years = c2.checkbox("Target ALL years", value=False, help="If on, removes all seeded June entries across all years.")
+
+        colA, colB, colC = st.columns(3)
+
+        if colA.button("Remove sample (June)"):
+            conn = get_conn()
+            if remove_all_years:
+                # Remove all seeded entries regardless of year
+                conn.execute("DELETE FROM entries WHERE notes='seed' AND strftime('%m', date)='06'")
+                msg = "Removed sample entries for June across all years."
+            else:
+                june_period = f"{int(yr):04d}-06"
+                conn.execute("DELETE FROM entries WHERE period=? AND notes='seed'", (june_period,))
+                msg = f"Removed sample entries for {june_period}."
+            conn.commit()
+            conn.close()
+            st.warning(msg)
+            st.rerun()
+
+        if colB.button("Replace sample (June)"):
+            # Delete then re-add fresh
+            conn = get_conn()
+            if remove_all_years:
+                conn.execute("DELETE FROM entries WHERE notes='seed' AND strftime('%m', date)='06'")
+            else:
+                june_period = f"{int(yr):04d}-06"
+                conn.execute("DELETE FROM entries WHERE period=? AND notes='seed'", (june_period,))
+            conn.commit()
+            conn.close()
+
+            # Re-seed (supports both the new and old function signatures)
+            added = None
+            try:
+                added = seed_example_data(year=int(yr), skip_duplicates=False, replace=False)
+            except TypeError:
+                try:
+                    seed_example_data(int(yr))
+                except Exception:
+                    pass
+
+            if added is not None:
+                st.success(f"Re-seeded June {int(yr)} with {added} sample entries.")
+            else:
+                st.success(f"Re-seeded June {int(yr)}.")
+            st.rerun()
+
+        if colC.button("Remove ALL sample entries (any month/year)"):
+            conn = get_conn()
+            conn.execute("DELETE FROM entries WHERE notes='seed'")
+            conn.commit()
+            conn.close()
+            st.warning("Removed all sample entries across all months and years.")
+            st.rerun()
+
+    st.markdown("---")
+    # Danger zone
     if st.checkbox("Danger zone: show destructive actions"):
-        if st.button("Wipe ALL data (cannot be undone)", type="secondary"):
+        st.caption("These actions cannot be undone.")
+        if st.button("Wipe ALL data (delete local database)", type="secondary"):
             if DB_PATH.exists():
                 DB_PATH.unlink()
             init_db()
             st.warning("Database wiped.")
             st.rerun()
+
 
