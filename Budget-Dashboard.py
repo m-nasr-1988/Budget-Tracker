@@ -552,7 +552,7 @@ with tabs[1]:
                 "tags": tags.strip()
             })
             st.success("Entry added. Reloading...")
-            st.experimental_rerun()
+            st.rerun()
 
     st.markdown("### Edit / Delete")
     df = load_entries_df(st.session_state["period"])
@@ -592,11 +592,11 @@ with tabs[1]:
                         "tags": tags.strip()
                     })
                     st.success("Updated.")
-                    st.experimental_rerun()
+                    st.rerun()
                 if delbtn:
                     delete_entry(eid)
                     st.warning("Deleted.")
-                    st.experimental_rerun()
+                    st.rerun()
 
 # Import
 with tabs[2]:
@@ -690,7 +690,7 @@ with tabs[2]:
                     row["import_batch_id"] = batch_id
                     add_entry(row)
                 st.success(f"Imported {len(processed)} rows into {len(set([r['period'] for r in processed]))} month(s).")
-                st.experimental_rerun()
+                st.rerun()
 
 # Templates
 with tabs[3]:
@@ -703,7 +703,7 @@ with tabs[3]:
         if st.button("Create template") and new_name.strip():
             tid = add_template(new_name.strip())
             st.success(f"Created template '{new_name}'.")
-            st.experimental_rerun()
+            st.rerun()
     else:
         tid = int(sel.split(":")[0])
         st.markdown("#### Template items")
@@ -724,7 +724,7 @@ with tabs[3]:
             if addit:
                 add_template_item(tid, {"type": ttype, "category": tcat, "source": tcat, "amount": tamount, "status": tstatus, "notes": tnotes})
                 st.success("Item added.")
-                st.experimental_rerun()
+                st.rerun()
 
         st.markdown("#### Apply template to month")
         ap_period = st.selectbox("Month to apply", existing_periods() + [st.session_state["period"]], index=existing_periods().index(st.session_state["period"]) if st.session_state["period"] in existing_periods() else 0)
@@ -733,13 +733,13 @@ with tabs[3]:
         if st.button("Apply template"):
             count = apply_template_to_month(tid, ap_period, set_status=ap_status, mark_manual=ap_manual)
             st.success(f"Applied {count} items to {ap_period}.")
-            st.experimental_rerun()
+            st.rerun()
 
         st.markdown("---")
         if st.button("Delete template", type="secondary"):
             delete_template(tid)
             st.warning("Template deleted.")
-            st.experimental_rerun()
+            st.rerun()
 
     st.markdown("#### Save current month as template")
     new_tname = st.text_input("Template name", value=f"{st.session_state['period']} plan")
@@ -752,7 +752,7 @@ with tabs[3]:
             for _, r in dfm.iterrows():
                 add_template_item(new_tid, {"type": r["type"], "category": r["category"], "source": r["source"], "amount": r["amount"], "status": r["status"], "notes": r.get("notes") or ""})
             st.success(f"Saved {len(dfm)} items to template '{new_tname}'.")
-            st.experimental_rerun()
+            st.rerun()
 
 # Rules
 with tabs[4]:
@@ -777,14 +777,14 @@ with tabs[4]:
         if addbtn and pattern.strip() and rcat.strip():
             add_rule(pattern.strip(), rcat.strip(), rtype, field, regex=regex, priority=priority)
             st.success("Rule added.")
-            st.experimental_rerun()
+            st.rerun()
 
     del_id = st.number_input("Delete rule by ID", min_value=0, step=1)
     if st.button("Delete rule"):
         if del_id > 0:
             delete_rule(int(del_id))
             st.warning(f"Rule {int(del_id)} deleted.")
-            st.experimental_rerun()
+            st.rerun()
 
 # Budgets
 with tabs[5]:
@@ -801,7 +801,7 @@ with tabs[5]:
         if new_cat.strip():
             set_budget(st.session_state["period"], new_cat.strip(), new_amt)
             st.success("Budget updated.")
-            st.experimental_rerun()
+            st.rerun()
 
     budgets = get_budgets(st.session_state["period"])
     if not budgets.empty:
@@ -824,4 +824,5 @@ with tabs[6]:
                 DB_PATH.unlink()
             init_db()
             st.warning("Database wiped.")
-            st.experimental_rerun()
+            st.rerun()
+
