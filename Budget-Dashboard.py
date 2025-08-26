@@ -469,15 +469,18 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("Sample data")
     st.caption("Adds 10 demo entries to June of the current year to preview charts.")
-    c1, c2 = st.columns(2)
-    skip_dups = c1.checkbox("Skip duplicates", value=True)
-    replace_seed = c2.checkbox("Replace existing", value=False, help="Remove previously added sample entries for June, then re-add fresh.")
-    if st.button("Add sample entries now"):
-        added = seed_example_data(year=date.today().year, skip_duplicates=skip_dups, replace=replace_seed)
-        if replace_seed:
-            st.success(f"Replaced sample data. Added {added} entries.")
-        else:
-            st.success(f"Added {added} new sample entries.")
+
+    skip_dups = st.checkbox("Skip duplicates",value=True,help="Avoid adding the same sample rows again.")
+    replace_seed = st.checkbox("Replace existing",value=False,help="Delete existing June sample rows (notes='seed'), then add fresh ones.")
+
+    if st.button("Add sample entries now", use_container_width=True):
+        # Assumes you’re using the updated seed_example_data(year, skip_duplicates, replace)
+        added = seed_example_data(year=date.today().year,skip_duplicates=skip_dups,replace=replace_seed)
+        st.success(
+            f"Replaced sample data. Added {added} entries."
+            if replace_seed else
+            f"Added {added} new sample entries."
+        )
         st.rerun()
 
     st.markdown("---")
@@ -968,5 +971,6 @@ with tabs[6]:
             init_db()
             st.warning("Database wiped.")
             st.rerun()
+
 
 
