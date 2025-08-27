@@ -600,11 +600,24 @@ with tabs[0]:
         left.plotly_chart(fig_pie, use_container_width=True)
     trend = trend_last_n_months(6)
     if not trend.empty:
+        # Build a clean Month/Year label from period
+        trend = trend.copy()
+        try:
+            # If period is like "2025-05", turn it into "May 2025"
+            trend["label"] = pd.to_datetime(trend["period"] + "-01").dt.strftime("%b %Y")
+        except Exception:
+            # Fallback: just use the raw value
+            trend["label"] = trend["period"].astype(str)
+
         fig_trend = go.Figure()
-        fig_trend.add_trace(go.Bar(x=trend["period"], y=trend["Income"], name="Income"))
-        fig_trend.add_trace(go.Bar(x=trend["period"], y=trend["Expense"], name="Expense"))
-        fig_trend.add_trace(go.Scatter(x=trend["period"], y=trend["Net"], name="Net", mode="lines+markers"))
+        fig_trend.add_trace(go.Bar(x=trend["label"], y=trend["Income"], name="Income"))
+        fig_trend.add_trace(go.Bar(x=trend["label"], y=trend["Expense"], name="Expense"))
+        fig_trend.add_trace(go.Scatter(x=trend["label"], y=trend["Net"], name="Net", mode="lines+markers"))
         fig_trend.update_layout(barmode="group", title="Last 6 Months")
+
+        # Treat x as categories so Plotly doesn’t auto-convert to datetime (no time displayed)
+        fig_trend.update_xaxes(type="category")
+
         right.plotly_chart(fig_trend, use_container_width=True)
 
     # Budgets progress
@@ -1211,6 +1224,7 @@ with tabs[6]:
             init_db()
             st.warning("Database wiped.")
             st.rerun()
+
 
 
 
