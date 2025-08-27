@@ -359,6 +359,32 @@ def safe_clear_state(key):
         # If Streamlit refuses to set (rare), just drop the key
         st.session_state.pop(key, None)
 
+def guess_column(cols, patterns):
+    # Best-effort guess: exact match > startswith > contains
+    cols_l = [c.lower().strip() for c in cols]
+    score = {i: 0 for i in range(len(cols))}
+    for i, cl in enumerate(cols_l):
+        for rank, pat in enumerate(patterns):
+            p = pat.lower()
+            if cl == p:
+                score[i] += 100 - rank  # exact
+            elif cl.startswith(p):
+                score[i] += 50 - rank   # startswith
+            elif p in cl:
+                score[i] += 20 - rank   # contains
+    best_i = max(score, key=score.get) if cols else None
+    return cols[best_i] if best_i is not None and score[best_i] > 0 else None
+
+def select_index_with_guess(all_options, guess):
+    # all_options includes "<None>" + cols
+    if not guess:
+        return 0
+    try:
+        return all_options.index(guess)
+    except ValueError:
+        return 0
+
+
 # ------------- Categorization -------------
 def categorize_with_rules(rules, type_, source, notes, category):
     text_fields = {
@@ -916,52 +942,74 @@ with tabs[2]:
     st.subheader("Upload Excel/CSV")
     up = st.file_uploader("Upload file", type=["xlsx","xls","csv"])
     if up is not None:
-        if up.name.lower().endswith(".csv"):
-            raw = pd.read_csv(up)
-        else:
-            raw = pd.read_excel(up)
+        raw = pd.read_csv(up) if up.name.lower().endswith(".csv") else pd.read_excel(up)
         st.write("Preview")
         st.dataframe(raw.head(20), use_container_width=True)
-
-        st.info("Map columns. Use the best available columns from your file.")
+    
         cols = list(raw.columns)
+    
+        # Auto guesses
+        g_date   = guess_column(cols, ["date", "transaction date", "posting date", "value date", "book date", "posted on"])
+        g_month  = guess_column(cols, ["month", "period", "statement month"])
+        g_type   = guess_column(cols, ["type", "transaction type", "txn type", "debit/credit", "dr/cr"])
+        g_cat    = guess_column(cols, ["category", "cat", "category name"])
+        g_source = guess_column(cols, ["source", "payee", "description", "merchant", "narration", "memo", "details", "name"])
+        g_amount = guess_column(cols, ["amount", "transaction amount", "amt", "value"])
+        g_status = guess_column(cols, ["status", "state"])
+        g_desc   = guess_column(cols, ["description", "memo", "details", "narration", "note", "notes"])
+    
+        st.info("Map columns. Auto-guesses are preselected; adjust if needed.")
+        opt = ["<None>"] + cols
         c1, c2, c3 = st.columns(3)
-        col_date = c1.selectbox("Date column (or None)", ["<None>"]+cols)
-        col_month = c2.selectbox("Month name column (or None)", ["<None>"]+cols, index=cols.index("Month") if "Month" in cols else 0)
-        col_type = c3.selectbox("Type column", cols if "Type" in cols else ["<None>"]+cols, index=cols.index("Type") if "Type" in cols else 0)
+        col_date  = c1.selectbox("Date column (or None)", opt, index=select_index_with_guess(opt, g_date))
+        col_month = c2.selectbox("Month name column (or None)", opt, index=select_index_with_guess(opt, g_month))
+        col_type  = c3.selectbox("Type column (Income/Expense)", opt, index=select_index_with_guess(opt, g_type))
+    
         c4, c5, c6 = st.columns(3)
-        col_cat = c4.selectbox("Source/Category column", cols if "Source/Category" in cols else ["<None>"]+cols, index=cols.index("Source/Category") if "Source/Category" in cols else 0)
-        col_amount = c5.selectbox("Amount column", cols if "Amount" in cols else ["<None>"]+cols, index=cols.index("Amount") if "Amount" in cols else 0)
-        col_status = c6.selectbox("Status column", ["<None>"]+cols, index=cols.index("Status") if "Status" in cols else 0)
-        col_desc = st.selectbox("Description/Notes column (optional)", ["<None>"]+cols)
-
+        col_cat    = c4.selectbox("Category column", opt, index=select_index_with_guess(opt, g_cat))
+        col_source = c5.selectbox("Source/Payee column", opt, index=select_index_with_guess(opt, g_source))
+        col_amount = c6.selectbox("Amount column", opt, index=select_index_with_guess(opt, g_amount))
+    
+        c7, c8 = st.columns(2)
+        col_status = c7.selectbox("Status column (optional)", opt, index=select_index_with_guess(opt, g_status))
+        col_desc   = c8.selectbox("Description/Notes column (optional)", opt, index=select_index_with_guess(opt, g_desc))
+    
         if col_month != "<None>":
             year_for_month = st.number_input("Year for the 'Month' column", min_value=2000, max_value=2100, value=date.today().year)
         else:
             year_for_month = date.today().year
-
+    
         auto_mark_manual = st.checkbox("Mark imported as manual?", value=False)
         do_autocat = st.checkbox("Auto-categorize missing expense categories", value=True)
-
-        if st.button("Process and Import"):
-            # Build normalized rows
+    
+        st.markdown("---")
+        st.subheader("Step 2: Preview, detect duplicates/conflicts, and choose actions")
+    
+        if st.button("Preview & detect matches"):
+            # Normalize rows (but don't commit yet)
             rules = load_rules()
             processed = []
             for _, r in raw.iterrows():
-                type_ = (str(r[col_type]).strip() if col_type != "<None>" else "").title()
+                # Amount
+                try:
+                    amount_val = float(r[col_amount]) if col_amount != "<None>" else 0.0
+                except Exception:
+                    amount_val = 0.0
+    
+                # Type
+                type_ = (str(r[col_type]).strip().title() if col_type != "<None>" and not pd.isna(r[col_type]) else "")
                 if type_ not in ("Income","Expense"):
-                    # attempt to infer: negative as expense, positive as income
-                    try:
-                        amt = float(r[col_amount])
-                        type_ = "Expense" if amt < 0 else "Income"
-                    except Exception:
-                        type_ = "Expense"
-                amount = float(r[col_amount])
-                status = str(r[col_status]).title() if (col_status != "<None>" and not pd.isna(r[col_status])) else "Paid"
-                source_cat = str(r[col_cat]) if col_cat != "<None>" else ""
-                notes = str(r[col_desc]) if (col_desc != "<None>" and not pd.isna(r[col_desc])) else ""
-
-                # Date/Period
+                    type_ = "Expense" if amount_val < 0 else "Income"
+    
+                # Status
+                status = (str(r[col_status]).title() if (col_status != "<None>" and not pd.isna(r[col_status])) else "Paid")
+    
+                # Source / Category / Notes
+                category = (str(r[col_cat]).strip() if col_cat != "<None>" and not pd.isna(r[col_cat]) else "")
+                source   = (str(r[col_source]).strip() if col_source != "<None>" and not pd.isna(r[col_source]) else "")
+                notes    = (str(r[col_desc]).strip() if col_desc != "<None>" and not pd.isna(r[col_desc]) else "")
+    
+                # Date / Period
                 if col_date != "<None>" and not pd.isna(r[col_date]):
                     try:
                         dt = pd.to_datetime(r[col_date]).date()
@@ -969,42 +1017,173 @@ with tabs[2]:
                         dt = date(year_for_month, 1, 1)
                     period = to_period(dt)
                 elif col_month != "<None>" and not pd.isna(r[col_month]):
-                    m = month_name_to_num(str(r[col_month]))
+                    mname = str(r[col_month])
+                    m = month_name_to_num(mname)
                     m = m if m >= 1 else date.today().month
                     dt = date(year_for_month, m, 1)
-                    period = ensure_period_from_parts(year_for_month, m)
+                    period = f"{year_for_month:04d}-{m:02d}"
                 else:
                     dt = date.today()
                     period = to_period(dt)
-
-                category = source_cat.strip()
-                source = source_cat.strip()
+    
+                # Normalize amount: store as positive number in DB, type tells direction
+                amount_clean = abs(float(amount_val))
+    
                 row = {
                     "date": dt.isoformat(),
                     "period": period,
                     "type": type_,
                     "category": category,
                     "source": source,
-                    "amount": abs(amount),
+                    "amount": amount_clean,
                     "status": status,
                     "notes": notes,
                     "is_manual": 1 if auto_mark_manual else 0,
                     "tags": ""
                 }
+    
+                # Auto-categorize only if Expense with missing/empty category
                 if do_autocat and type_ == "Expense" and (not category or category.lower() in ("", "nan", "none", "uncategorized")):
                     row["category"] = auto_categorize(row, rules)
+    
                 processed.append(row)
-
+    
             if not processed:
                 st.warning("No rows processed.")
             else:
-                batch_id = add_import_batch(up.name)
-                for row in processed:
-                    row["import_batch_id"] = batch_id
-                    add_entry(row)
-                st.success(f"Imported {len(processed)} rows into {len(set([r['period'] for r in processed]))} month(s).")
+                # Stage for review
+                st.session_state["staged_import_rows"] = processed
+                st.session_state["staged_import_filename"] = up.name
+                st.success(f"Prepared {len(processed)} rows. Review below, then Apply import.")
+                st.rerun()
+    
+        # If staged, show review grid
+        if "staged_import_rows" in st.session_state:
+            staged = pd.DataFrame(st.session_state["staged_import_rows"])
+            existing = load_entries_df()  # across all months
+    
+            # Simple duplicate/conflict detection
+            # Duplicate: same period, type, source (or category), and same rounded amount
+            staged["amount_r"] = staged["amount"].round(2)
+            existing["amount_r"] = existing["amount"].round(2)
+            existing["source_l"] = existing["source"].fillna("").str.lower()
+            existing["category_l"] = existing["category"].fillna("").str.lower()
+    
+            def find_match_info(srow):
+                period, type_, amt = srow["period"], srow["type"], srow["amount_r"]
+                src = str(srow.get("source","")).strip().lower()
+                cat = str(srow.get("category","")).strip().lower()
+    
+                cand = existing[(existing["period"]==period) & (existing["type"]==type_)]
+                # Duplicate if exact amount + (same source OR same category)
+                dup = cand[((cand["amount_r"]==amt) & ((cand["source_l"]==src) | (cand["category_l"]==cat)))]
+                if not dup.empty:
+                    rid = int(dup.iloc[0]["id"])
+                    return ("duplicate", rid, float(dup.iloc[0]["amount"]))
+                # Conflict if same source OR same category but different amount
+                conf = cand[((cand["source_l"]==src) | (cand["category_l"]==cat))]
+                if not conf.empty:
+                    rid = int(conf.iloc[0]["id"])
+                    return ("conflict", rid, float(conf.iloc[0]["amount"]))
+                return ("new", None, None)
+    
+            flags, match_ids, manual_amts = [], [], []
+            for _, srow in staged.iterrows():
+                rel, mid, mamt = find_match_info(srow)
+                flags.append(rel)
+                match_ids.append(mid)
+                manual_amts.append(mamt)
+    
+            staged["relation"] = flags      # new | duplicate | conflict
+            staged["match_id"] = match_ids  # id of matched existing row (if any)
+            staged["existing_amount"] = manual_amts
+    
+            # Default actions
+            def default_action(rel):
+                if rel == "duplicate":
+                    return "skip"
+                if rel == "conflict":
+                    return "update_manual"  # update existing manual row to imported amount
+                return "import_new"
+            staged["action"] = staged["relation"].map(default_action)
+    
+            st.markdown("#### Review staged rows")
+            st.caption("Choose an action per row. 'update_manual' will overwrite the matched row’s amount; 'skip' ignores the staged row; 'import_new' adds it as a new entry.")
+            action_opts = ["import_new", "skip", "update_manual"]
+    
+            review_cols = ["date","period","type","source","category","amount","existing_amount","relation","action"]
+            review_cfg = {
+                "relation": st.column_config.SelectboxColumn("Relation", options=["new","duplicate","conflict"], disabled=True),
+                "action": st.column_config.SelectboxColumn("Action", options=action_opts),
+                "existing_amount": st.column_config.NumberColumn("Existing amount", format="%.2f", disabled=True),
+                "amount": st.column_config.NumberColumn("Import amount", format="%.2f", disabled=True),
+            }
+    
+            staged_view = st.data_editor(
+                staged[review_cols],
+                hide_index=True,
+                use_container_width=True,
+                column_config=review_cfg,
+                key="staged_import_editor"
+            )
+    
+            left, right = st.columns([1,1])
+            if left.button("Apply import"):
+                # Apply actions
+                batch_id = add_import_batch(st.session_state.get("staged_import_filename","upload"))
+                applied, skipped, updated = 0, 0, 0
+    
+                # Use the edited staged_view to get chosen actions
+                for i, r in staged_view.iterrows():
+                    action = r["action"]
+                    original = staged.iloc[i].to_dict()
+                    if action == "skip":
+                        skipped += 1
+                        continue
+                    elif action == "update_manual" and not pd.isna(staged.iloc[i]["match_id"]):
+                        mid = int(staged.iloc[i]["match_id"])
+                        # Load the existing row to preserve all fields except amount/status/notes if desired
+                        df_exist = existing[existing["id"]==mid]
+                        if not df_exist.empty:
+                            base = df_exist.iloc[0].to_dict()
+                            # Update amount; keep other fields from existing
+                            update_entry(mid, {
+                                "date": base["date"],
+                                "period": base["period"],
+                                "type": base["type"],
+                                "category": base["category"],
+                                "source": base["source"],
+                                "amount": float(original["amount"]),
+                                "status": base["status"],  # or set to "Paid" if you want
+                                "notes": (base.get("notes") or "") + " | reconciled",
+                                "is_manual": int(base.get("is_manual", 0)),
+                                "tags": (base.get("tags") or "")
+                            })
+                            updated += 1
+                        else:
+                            # no match found after all; import as new
+                            original["import_batch_id"] = batch_id
+                            add_entry(original)
+                            applied += 1
+                    else:
+                        # import_new
+                        original["import_batch_id"] = batch_id
+                        add_entry(original)
+                        applied += 1
+    
+                # Clear staged
+                st.session_state.pop("staged_import_rows", None)
+                st.session_state.pop("staged_import_filename", None)
+                st.success(f"Import complete. Added {applied}, updated {updated}, skipped {skipped}.")
+                st.rerun()
+    
+            if right.button("Discard staged import"):
+                st.session_state.pop("staged_import_rows", None)
+                st.session_state.pop("staged_import_filename", None)
+                st.warning("Staged import discarded.")
                 st.rerun()
 
+    
 # Templates
 with tabs[3]:
     st.subheader("Templates")
@@ -1230,6 +1409,7 @@ with tabs[6]:
             init_db()
             st.warning("Database wiped.")
             st.rerun()
+
 
 
 
