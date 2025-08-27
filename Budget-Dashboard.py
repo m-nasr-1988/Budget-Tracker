@@ -1187,62 +1187,137 @@ with tabs[2]:
 # Templates
 with tabs[3]:
     st.subheader("Templates")
+
     templates = list_templates()
     tnames = ["<New template>"] + [f"{t['id']}: {t['name']}" for t in templates]
     sel = st.selectbox("Choose template", tnames)
+
     if sel == "<New template>":
         new_name = st.text_input("New template name")
         if st.button("Create template") and new_name.strip():
             tid = add_template(new_name.strip())
             st.success(f"Created template '{new_name}'.")
             st.rerun()
+
     else:
         tid = int(sel.split(":")[0])
+
+        # Show items
         st.markdown("#### Template items")
         items = get_template_items(tid)
         if items.empty:
             st.info("No items yet.")
         else:
-            st.dataframe(items[["id","type","category","source","amount","status","notes"]], use_container_width=True)
+            st.dataframe(
+                items[["id", "type", "category", "source", "amount", "status", "notes"]],
+                use_container_width=True,
+            )
+
+        # Add item form (type-aware category + free-typed amount)
         st.markdown("Add item")
-        with st.form("add_template_item"):
-            c1,c2,c3,c4 = st.columns(4)
-            ttype = c1.selectbox("Type", ["Expense","Income"])
-            tcat = c2.text_input("Category/Source")
-            tamount = c3.number_input("Amount", step=1.0, format="%.2f")
-            tstatus = c4.selectbox("Status", ["Planned","Pending","Paid"])
-            tnotes = st.text_input("Notes", "")
+        with st.form(f"add_template_item_{tid}"):
+            c1, c2, c3, c4 = st.columns(4)
+            ttype = c1.selectbox("Type", ["Expense", "Income"], key=f"tmpl_type_{tid}")
+
+            # Type-aware category dropdown
+            cat_options = get_categories(ttype)
+            cat_plus = cat_options + ["+ Add new category..."]
+            sel_cat = c2.selectbox("Category", cat_plus, key=f"tmpl_cat_{tid}")
+
+            # Amount as text input (robust typing)
+            amt_text = c3.text_input("Amount", placeholder="e.g. 120.00", key=f"tmpl_amt_text_{tid}")
+            tstatus = c4.selectbox("Status", ["Planned", "Pending", "Paid"], key=f"tmpl_status_{tid}")
+
+            c5, c6 = st.columns([2, 2])
+            tsource = c5.text_input("Source/Payee (optional)", key=f"tmpl_source_{tid}")
+            tnotes = c6.text_input("Notes (optional)", key=f"tmpl_notes_{tid}")
+
+            # Inline new category name when chosen
+            new_cat_name = None
+            if sel_cat == "+ Add new category...":
+                new_cat_name = st.text_input("New category name", key=f"tmpl_newcat_{tid}")
+
             addit = st.form_submit_button("Add item")
             if addit:
-                add_template_item(tid, {"type": ttype, "category": tcat, "source": tcat, "amount": tamount, "status": tstatus, "notes": tnotes})
+                # Resolve category
+                final_cat = sel_cat
+                if sel_cat == "+ Add new category...":
+                    if not new_cat_name or not new_cat_name.strip():
+                        st.error("Please enter a new category name.")
+                        st.stop()
+                    if add_category(ttype, new_cat_name.strip()):
+                        final_cat = new_cat_name.strip()
+                    else:
+                        st.error("Category already exists or invalid. Please choose another name.")
+                        st.stop()
+
+                # Parse amount
+                amt_val = parse_amount_text(amt_text)
+                if amt_val is None or amt_val < 0:
+                    st.error("Please enter a valid non-negative amount.")
+                    st.stop()
+
+                add_template_item(
+                    tid,
+                    {
+                        "type": ttype,
+                        "category": final_cat,
+                        "source": tsource.strip(),
+                        "amount": float(amt_val),
+                        "status": tstatus,
+                        "notes": tnotes.strip(),
+                    },
+                )
                 st.success("Item added.")
+                # Clear only the amount/source/notes inputs to keep Type/Category for faster entry
+                for k in (f"tmpl_amt_text_{tid}", f"tmpl_source_{tid}", f"tmpl_notes_{tid}"):
+                    st.session_state.pop(k, None)
                 st.rerun()
 
+        # Apply template to month (de-duplicated list)
         st.markdown("#### Apply template to month")
-        ap_period = st.selectbox("Month to apply", existing_periods() + [st.session_state["period"]], index=existing_periods().index(st.session_state["period"]) if st.session_state["period"] in existing_periods() else 0)
-        ap_status = st.selectbox("Set status", ["Pending","Planned","Paid"])
-        ap_manual = st.checkbox("Mark as manual?", value=True)
-        if st.button("Apply template"):
+        periods = existing_periods()
+        # Ensure current sidebar month is included, but avoid duplicates
+        periods = list(dict.fromkeys(periods + [st.session_state["period"]]))
+        # Default to current sidebar month if present
+        default_idx = periods.index(st.session_state["period"]) if st.session_state["period"] in periods else 0
+
+        ap_period = st.selectbox("Month to apply", periods, index=default_idx, key=f"tmpl_apply_period_{tid}")
+        ap_status = st.selectbox("Set status", ["Pending", "Planned", "Paid"], key=f"tmpl_apply_status_{tid}")
+        ap_manual = st.checkbox("Mark as manual?", value=True, key=f"tmpl_apply_manual_{tid}")
+
+        if st.button("Apply template", key=f"btn_apply_template_{tid}"):
             count = apply_template_to_month(tid, ap_period, set_status=ap_status, mark_manual=ap_manual)
             st.success(f"Applied {count} items to {ap_period}.")
             st.rerun()
 
         st.markdown("---")
-        if st.button("Delete template", type="secondary"):
+        if st.button("Delete template", type="secondary", key=f"btn_delete_template_{tid}"):
             delete_template(tid)
             st.warning("Template deleted.")
             st.rerun()
 
+    # Save current month as template
     st.markdown("#### Save current month as template")
-    new_tname = st.text_input("Template name", value=f"{st.session_state['period']} plan")
-    if st.button("Save month entries as template"):
+    new_tname = st.text_input("Template name", value=f"{st.session_state['period']} plan", key="save_month_as_template_name")
+    if st.button("Save month entries as template", key="btn_save_month_as_template"):
         dfm = load_entries_df(st.session_state["period"])
         if dfm.empty:
             st.info("No entries to save.")
         else:
             new_tid = add_template(new_tname.strip() or f"Template {now_ts()}")
             for _, r in dfm.iterrows():
-                add_template_item(new_tid, {"type": r["type"], "category": r["category"], "source": r["source"], "amount": r["amount"], "status": r["status"], "notes": r.get("notes") or ""})
+                add_template_item(
+                    new_tid,
+                    {
+                        "type": r["type"],
+                        "category": r["category"],
+                        "source": r["source"],
+                        "amount": r["amount"],
+                        "status": r["status"],
+                        "notes": r.get("notes") or "",
+                    },
+                )
             st.success(f"Saved {len(dfm)} items to template '{new_tname}'.")
             st.rerun()
 
@@ -1462,6 +1537,7 @@ with tabs[6]:
             init_db()
             st.warning("Database wiped.")
             st.rerun()
+
 
 
 
