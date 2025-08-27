@@ -1281,23 +1281,75 @@ with tabs[4]:
 # Budgets
 with tabs[5]:
     st.subheader(f"Budgets for {st.session_state['period']}")
-    # Suggest categories from current month expenses
-    dfm = load_entries_df(st.session_state["period"])
-    cats = sorted(set(dfm[dfm["type"]=="Expense"]["category"])) if not dfm.empty else []
-    if not cats:
-        st.info("No expense categories found for this month. You can still add budgets manually below.")
-    c1, c2 = st.columns([2,1])
-    new_cat = c1.text_input("Category")
-    new_amt = c2.number_input("Budget amount", step=10.0, format="%.2f")
-    if st.button("Set/Update budget"):
-        if new_cat.strip():
-            set_budget(st.session_state["period"], new_cat.strip(), new_amt)
-            st.success("Budget updated.")
+
+    # Category dropdown (Expense categories only)
+    exp_cats = get_categories("Expense")
+    cat_plus = exp_cats + ["+ Add new category..."]
+
+    c1, c2 = st.columns([2, 1.5])
+    sel_budget_cat = c1.selectbox("Category", cat_plus, key="budget_cat_select")
+
+    # Inline add new category
+    if sel_budget_cat == "+ Add new category...":
+        new_budget_cat = st.text_input("New expense category name", key="budget_new_cat_name")
+        if st.button("Add category", key="btn_add_budget_cat"):
+            if new_budget_cat and new_budget_cat.strip():
+                if add_category("Expense", new_budget_cat.strip()):
+                    st.session_state["budget_cat_select"] = new_budget_cat.strip()
+                    st.success(f"Added '{new_budget_cat.strip()}' to Expense categories.")
+                    st.rerun()
+                else:
+                    st.warning("That category already exists or name is invalid.")
+            else:
+                st.error("Please enter a category name.")
+
+    # Amount as free-typed text (robust parsing)
+    budget_amt_text = c2.text_input("Budget amount", value="", placeholder="e.g. 500.00", key="budget_amount_text")
+
+    if st.button("Set/Update budget", key="btn_set_budget"):
+        # Resolve category (could be new)
+        if st.session_state["budget_cat_select"] == "+ Add new category...":
+            new_cat_name = st.session_state.get("budget_new_cat_name", "")
+            if not new_cat_name or not new_cat_name.strip():
+                st.error("Please add a new category name or choose an existing one.")
+                st.stop()
+            add_category("Expense", new_cat_name.strip())
+            final_cat = new_cat_name.strip()
+        else:
+            final_cat = st.session_state["budget_cat_select"]
+
+        # Parse amount
+        amt_val = parse_amount_text(budget_amt_text)
+        if amt_val is None or amt_val < 0:
+            st.error("Please enter a valid non-negative amount.")
+        else:
+            set_budget(st.session_state["period"], final_cat, float(amt_val))
+            st.success(f"Budget set for {final_cat}: {amt_val:,.2f}")
+            # Clear amount field
+            st.session_state["budget_amount_text"] = ""
             st.rerun()
 
-    budgets = get_budgets(st.session_state["period"])
-    if not budgets.empty:
-        st.dataframe(budgets, use_container_width=True)
+    st.markdown("### Current budgets")
+    budgets_df = get_budgets(st.session_state["period"])
+    if budgets_df.empty:
+        st.info("No budgets set for this month yet.")
+    else:
+        st.dataframe(budgets_df, use_container_width=True)
+
+        # Optional: quick delete
+        with st.expander("Delete a budget line"):
+            if not budgets_df.empty:
+                opts = budgets_df.apply(lambda r: f"{r['category']} — {r['amount']}", axis=1).tolist()
+                id_by_label = {f"{r['category']} — {r['amount']}": int(r["id"]) for _, r in budgets_df.iterrows()}
+                sel_del = st.selectbox("Select budget to delete", [""] + opts, key="budget_delete_sel")
+                if sel_del and st.button("Delete selected budget", key="btn_delete_budget"):
+                    bid = id_by_label[sel_del]
+                    conn = get_conn()
+                    conn.execute("DELETE FROM budgets WHERE id=?", (bid,))
+                    conn.commit()
+                    conn.close()
+                    st.warning("Budget deleted.")
+                    st.rerun()
 
 # Settings
 with tabs[6]:
@@ -1409,6 +1461,7 @@ with tabs[6]:
             init_db()
             st.warning("Database wiped.")
             st.rerun()
+
 
 
 
