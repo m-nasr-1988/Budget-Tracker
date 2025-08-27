@@ -7,6 +7,8 @@ import re
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
+import numbers
+import numpy as np
 
 DB_PATH = Path("budget.db")
 
@@ -339,6 +341,23 @@ def parse_amount_text(s) -> float | None:
         return float(cleaned)
     except Exception:
         return None
+
+def safe_clear_state(key):
+    if key not in st.session_state:
+        return
+    v = st.session_state[key]
+    try:
+        if isinstance(v, bool):
+            st.session_state[key] = False
+        elif isinstance(v, (numbers.Integral, numbers.Real, np.number)):
+            st.session_state[key] = 0.0
+        elif isinstance(v, (list, tuple, set)):
+            st.session_state[key] = type(v)()  # empty same type
+        else:
+            st.session_state[key] = ""
+    except Exception:
+        # If Streamlit refuses to set (rare), just drop the key
+        st.session_state.pop(key, None)
 
 # ------------- Categorization -------------
 def categorize_with_rules(rules, type_, source, notes, category):
@@ -794,7 +813,7 @@ with tabs[1]:
             st.success("Entry added.")
             # Optional: clear some fields
             for k in ("add_source","add_tags","add_notes","add_amount_text"):
-                st.session_state[k] = ""
+                safe_clear_state(k)
             st.rerun()
 
     st.markdown("---")
@@ -1192,6 +1211,7 @@ with tabs[6]:
             init_db()
             st.warning("Database wiped.")
             st.rerun()
+
 
 
 
