@@ -1307,7 +1307,7 @@ with tabs[5]:
     budget_amt_text = c2.text_input("Budget amount", value="", placeholder="e.g. 500.00", key="budget_amount_text")
 
     if st.button("Set/Update budget", key="btn_set_budget"):
-        # Resolve category (could be new)
+        # Resolve category (handles "+ Add new...")
         if st.session_state["budget_cat_select"] == "+ Add new category...":
             new_cat_name = st.session_state.get("budget_new_cat_name", "")
             if not new_cat_name or not new_cat_name.strip():
@@ -1325,8 +1325,9 @@ with tabs[5]:
         else:
             set_budget(st.session_state["period"], final_cat, float(amt_val))
             st.success(f"Budget set for {final_cat}: {amt_val:,.2f}")
-            # Clear amount field
-            st.session_state["budget_amount_text"] = ""
+
+            # Mini-patch: safely clear the amount input and rerun
+            st.session_state.pop("budget_amount_text", None)
             st.rerun()
 
     st.markdown("### Current budgets")
@@ -1461,6 +1462,7 @@ with tabs[6]:
             init_db()
             st.warning("Database wiped.")
             st.rerun()
+
 
 
 
