@@ -691,78 +691,77 @@ with tabs[1]:
             axis=1
         )]
 
-    # Inline editor (quick edits; is_manual is read-only)
-    st.markdown("### Quick inline edit")
-    if df_show.empty:
-        st.info("No entries to show for this month.")
-    else:
-        edit_cols = ["id","date","type","category","source","amount","status","notes","tags"]
-        view = df_show[edit_cols].copy()
-        view["date"] = pd.to_datetime(view["date"], errors="coerce")
-        view["amount"] = pd.to_numeric(view["amount"], errors="coerce").astype(float)
-        
-    # Map current manual flags so we can preserve them on save
+# --- Quick inline edit ---
+st.markdown("### Quick inline edit")
+if df_show.empty:
+    st.info("No entries to show for this month.")
+else:
+    # Preserve is_manual for this month (since we hid it from the grid)
     manual_map = dict(zip(df_month["id"].astype(int), df_month["is_manual"].astype(int)))
 
-        edited = st.data_editor(
-            view,
-            num_rows="fixed",
-            hide_index=True,
-            use_container_width=True,
-            disabled=["id", "is_manual"],  # make manual flag read-only
-            column_config={
-                "id": st.column_config.TextColumn("ID"),
-                "date": st.column_config.DateColumn("Date"),
-                "type": st.column_config.SelectboxColumn("Type", options=["Income","Expense"]),
-                "category": st.column_config.SelectboxColumn("Category", options=sorted(set(get_categories("Income") + get_categories("Expense")))),
-                "source": st.column_config.TextColumn("Source/Payee"),
-                "amount": st.column_config.NumberColumn("Amount", step=0.01, format="%.2f", min_value=0.0),
-                "status": st.column_config.SelectboxColumn("Status", options=["Paid","Pending","Planned"]),
-                "notes": st.column_config.TextColumn("Notes"),
-                "tags": st.column_config.TextColumn("Tags"),
-            },
-            key=f"editor_{st.session_state['period']}"
-        )
+    # Columns to show/edit (is_manual removed)
+    edit_cols = ["id", "date", "type", "category", "source", "amount", "status", "notes", "tags"]
+    view = df_show[edit_cols].copy()
+    view["date"] = pd.to_datetime(view["date"], errors="coerce")
+    view["amount"] = pd.to_numeric(view["amount"], errors="coerce").astype(float)
 
-        if st.button("Save table edits", type="primary"):
-            changed = 0
-            for _, r in edited.iterrows():
-                try:
-                    eid = int(r["id"])
-                except Exception:
-                    continue
+    edited = st.data_editor(
+        view,
+        num_rows="fixed",
+        hide_index=True,
+        use_container_width=True,
+        disabled=["id"],
+        column_config={
+            "id": st.column_config.TextColumn("ID"),
+            "date": st.column_config.DateColumn("Date"),
+            "type": st.column_config.SelectboxColumn("Type", options=["Income", "Expense"]),
+            "category": st.column_config.SelectboxColumn(
+                "Category",
+                options=sorted(set(get_categories("Income") + get_categories("Expense")))
+            ),
+            "source": st.column_config.TextColumn("Source/Payee"),
+            "amount": st.column_config.NumberColumn("Amount", step=0.01, format="%.2f", min_value=0.0),
+            "status": st.column_config.SelectboxColumn("Status", options=["Paid", "Pending", "Planned"]),
+            "notes": st.column_config.TextColumn("Notes"),
+            "tags": st.column_config.TextColumn("Tags"),
+        },
+        key=f"editor_{st.session_state['period']}"
+    )
 
-                # Preserve original manual flag (since it's hidden from the grid)
-                old_manual = int(manual_map.get(eid, 0))
-                # Optional fallback if the row somehow wasn’t in df_month (rare):
-                # if eid not in manual_map:
-                #     conn = get_conn()
-                #     row = conn.execute("SELECT is_manual FROM entries WHERE id=?", (eid,)).fetchone()
-                #     conn.close()
-                #     old_manual = int(row["is_manual"]) if row else 0
+    if st.button("Save table edits", type="primary"):
+        changed = 0
+        for _, r in edited.iterrows():
+            try:
+                eid = int(r["id"])
+            except Exception:
+                continue
 
-                dt = r["date"]
-                if pd.isna(dt):
-                    dt = date.today()
-                elif isinstance(dt, pd.Timestamp):
-                    dt = dt.date()
+            # Keep the original manual flag
+            old_manual = int(manual_map.get(eid, 0))
 
-                entry = {
-                    "date": dt.isoformat(),
-                    "period": to_period(dt),
-                    "type": str(r["type"]),
-                    "category": str(r["category"] or "").strip(),
-                    "source": str(r["source"] or "").strip(),
-                    "amount": float(r["amount"] or 0.0),
-                    "status": str(r["status"] or "Pending"),
-                    "notes": str(r["notes"] or "").strip(),
-                    "is_manual": old_manual,  # <-- preserve
-                    "tags": str(r["tags"] or "").strip(),
-                }
-                update_entry(eid, entry)
-                changed += 1
-            st.success(f"Saved edits to {changed} row(s).")
-            st.rerun()
+            # Normalize date
+            dt = r["date"]
+            if pd.isna(dt):
+                dt = date.today()
+            elif isinstance(dt, pd.Timestamp):
+                dt = dt.date()
+
+            update_entry(eid, {
+                "date": dt.isoformat(),
+                "period": to_period(dt),
+                "type": str(r["type"]),
+                "category": str(r["category"] or "").strip(),
+                "source": str(r["source"] or "").strip(),
+                "amount": float(r["amount"] or 0.0),
+                "status": str(r["status"] or "Pending"),
+                "notes": str(r["notes"] or "").strip(),
+                "is_manual": old_manual,  # preserved
+                "tags": str(r["tags"] or "").strip(),
+            })
+            changed += 1
+
+        st.success(f"Saved edits to {changed} row(s).")
+        st.rerun()
 
     st.markdown("---")
     st.markdown("### Add new entry (dynamic)")
@@ -1231,6 +1230,7 @@ with tabs[6]:
             init_db()
             st.warning("Database wiped.")
             st.rerun()
+
 
 
 
