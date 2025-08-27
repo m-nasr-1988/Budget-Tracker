@@ -616,7 +616,7 @@ tab_objs = st.tabs(tab_names)
 tab = {name: tab_objs[i] for i, name in enumerate(tab_names)}
 
 # Dashboard
-with tabs["Dashboard"]:
+with tab["Dashboard"]:
     col1, col2, col3 = st.columns(3)
     summary = calc_month_summary(st.session_state["period"])
     income = summary["income"]
@@ -710,7 +710,7 @@ with tabs["Dashboard"]:
             st.plotly_chart(fig_fc, use_container_width=True)
 
 # Entries
-with tabs["Entries"]:
+with tab["Entries"]:
     st.subheader(f"Entries for {st.session_state['period']}")
 
     # Search/filter
@@ -946,7 +946,7 @@ with tabs["Entries"]:
                     st.warning("Deleted.")
                     st.rerun()
 # Import
-with tabs["Import"]:
+with tab["Import"]:
     st.subheader("Upload Excel/CSV")
     up = st.file_uploader("Upload file", type=["xlsx","xls","csv"])
     if up is not None:
@@ -1193,7 +1193,7 @@ with tabs["Import"]:
 
     
 # Templates
-with tabs["Templates"]:
+with tab["Templates"]:
     st.subheader("Templates")
 
     templates = list_templates()
@@ -1331,7 +1331,7 @@ with tabs["Templates"]:
 
 # Rules
 if show_rules_tab:
-    with tabs["Rules"]:
+    with tab["Rules"]:
         st.subheader("Auto-categorization rules")
         rules = load_rules()
         if rules:
@@ -1363,7 +1363,7 @@ if show_rules_tab:
                 st.rerun()
 
 # Budgets
-with tabs["Budgets"]:
+with tab["Budgets"]:
     st.subheader(f"Budgets for {st.session_state['period']}")
 
     # Category dropdown (Expense categories only)
@@ -1437,7 +1437,7 @@ with tabs["Budgets"]:
                     st.rerun()
 
 # Settings
-with tabs["Settings"]:
+with tab["Settings"]:
     st.subheader("Export (selected month)")
     df_month = load_entries_df(st.session_state["period"])
     if not df_month.empty:
@@ -1546,6 +1546,7 @@ with tabs["Settings"]:
             init_db()
             st.warning("Database wiped.")
             st.rerun()
+
 
 
 
