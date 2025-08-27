@@ -324,6 +324,22 @@ def add_import_batch(filename: str) -> int:
     conn.close()
     return row["id"]
 
+def parse_amount_text(s) -> float | None:
+    if s is None:
+        return None
+    s = str(s).strip()
+    if s == "":
+        return None
+    # Keep digits, minus, dot, comma; drop other chars
+    import re as _re
+    cleaned = _re.sub(r"[^\d\-\.,]", "", s)
+    # Normalize: remove thousands separators
+    cleaned = cleaned.replace(",", "")
+    try:
+        return float(cleaned)
+    except Exception:
+        return None
+
 # ------------- Categorization -------------
 def categorize_with_rules(rules, type_, source, notes, category):
     text_fields = {
@@ -638,39 +654,25 @@ with tabs[1]:
     if not df_show.empty and q:
         ql = q.lower().strip()
         cols_to_search = ["date","type","category","source","status","notes","tags"]
-        def match_row(r):
-            txt = " ".join([str(r.get(c,"") or "") for c in cols_to_search]).lower()
-            return ql in txt
-        df_show = df_show[df_show.apply(match_row, axis=1)]
-
-    # Quick add new category (persists to DB)
-    with st.expander("Add a new category"):
-        c1, c2, c3 = st.columns([1,2,1])
-        new_cat_type = c1.selectbox("Type", ["Expense","Income"])
-        new_cat_name = c2.text_input("New category name")
-        if c3.button("Add category"):
-            if add_category(new_cat_type, new_cat_name):
-                st.success(f"Added category '{new_cat_name}' under {new_cat_type}.")
-                st.rerun()
-            else:
-                st.warning("Please enter a valid category name.")
+        df_show = df_show[df_show.apply(
+            lambda r: ql in " ".join([str(r.get(c,"") or "") for c in cols_to_search]).lower(),
+            axis=1
+        )]
 
     # Inline editor (quick edits)
     st.markdown("### Quick inline edit")
     if df_show.empty:
         st.info("No entries to show for this month.")
     else:
-        # Prepare editable view
         edit_cols = ["id","date","type","category","source","amount","status","is_manual","notes","tags"]
         view = df_show[edit_cols].copy()
-
-        # Convert date to datetime for the editor
         view["date"] = pd.to_datetime(view["date"], errors="coerce")
+        # Ensure float dtype so editor allows decimals
+        view["amount"] = pd.to_numeric(view["amount"], errors="coerce").astype(float)
 
-        # Data editor with configs
         edited = st.data_editor(
             view,
-            num_rows="fixed",  # no add/delete in the grid (use forms below for that)
+            num_rows="fixed",
             hide_index=True,
             use_container_width=True,
             disabled=["id"],
@@ -678,7 +680,8 @@ with tabs[1]:
                 "id": st.column_config.TextColumn("ID"),
                 "date": st.column_config.DateColumn("Date"),
                 "type": st.column_config.SelectboxColumn("Type", options=["Income","Expense"]),
-                "category": st.column_config.SelectboxColumn("Category", options=get_all_categories()),
+                # Unified list in the grid (per-row dynamic lists are not supported here)
+                "category": st.column_config.SelectboxColumn("Category", options=sorted(set(get_categories("Income") + get_categories("Expense")))),
                 "source": st.column_config.TextColumn("Source/Payee"),
                 "amount": st.column_config.NumberColumn("Amount", step=0.01, format="%.2f", min_value=0.0),
                 "status": st.column_config.SelectboxColumn("Status", options=["Paid","Pending","Planned"]),
@@ -690,14 +693,13 @@ with tabs[1]:
         )
 
         if st.button("Save table edits", type="primary"):
-            # Persist edits to DB
             changed = 0
             for _, r in edited.iterrows():
                 try:
                     eid = int(r["id"])
                 except Exception:
                     continue
-                # Build update payload
+                # Convert date to date
                 dt = r["date"]
                 if pd.isna(dt):
                     dt = date.today()
@@ -721,116 +723,155 @@ with tabs[1]:
             st.rerun()
 
     st.markdown("---")
-    st.markdown("### Add new entry")
-    with st.form("add_entry_form"):
-        c1, c2, c3, c4 = st.columns(4)
-        dt = c1.date_input("Date", value=date.today())
-        etype = c2.selectbox("Type", ["Income","Expense"])
-        amount = c3.number_input("Amount", step=1.0, format="%.2f", min_value=0.0)
-        status = c4.selectbox("Status", ["Paid","Pending","Planned"])
+    st.markdown("### Add new entry (dynamic)")
 
-        # Type-aware category dropdown with "+ Add new..." option
-        cat_options = get_categories(etype)
-        cat_options_plus = cat_options + ["+ Add new category..."]
-        c5, c6, c7, c8 = st.columns(4)
-        sel_cat = c5.selectbox("Category", cat_options_plus)
-        source = c6.text_input("Source/Payee")
-        is_manual = c7.checkbox("Manual entry?", value=True)
-        tags = c8.text_input("Tags")
+    # Helper to reset Category selection when Type changes
+    def _reset_add_category():
+        for k in ("add_category", "add_new_category_name"):
+            if k in st.session_state:
+                del st.session_state[k]
 
-        # Only shown if "+ Add new..." is chosen
-        new_cat_inline = None
-        if sel_cat == "+ Add new category...":
-            new_cat_inline = st.text_input("New category name (for the selected Type)", key="new_cat_inline")
+    c1, c2, c3, c4 = st.columns(4)
+    dt = c1.date_input("Date", value=date.today(), key="add_date")
+    etype = c2.selectbox("Type", ["Income","Expense"], key="add_type", on_change=_reset_add_category)
+    amount_text = c3.text_input("Amount", key="add_amount_text", placeholder="e.g. 1234.56")
+    status = c4.selectbox("Status", ["Paid","Pending","Planned"], key="add_status")
 
-        notes = st.text_area("Notes", height=80)
+    c5, c6, c7, c8 = st.columns(4)
+    cat_options = get_categories(etype)
+    cat_options_plus = cat_options + ["+ Add new category..."]
+    sel_cat = c5.selectbox(
+        "Category",
+        options=cat_options_plus,
+        key="add_category",
+        index=(cat_options.index(st.session_state["add_category"]) if "add_category" in st.session_state and st.session_state["add_category"] in cat_options else 0)
+    )
+    source = c6.text_input("Source/Payee", key="add_source")
+    is_manual = c7.checkbox("Manual entry?", value=True, key="add_manual")
+    tags = c8.text_input("Tags", key="add_tags")
 
-        submitted = st.form_submit_button("Add entry")
-        if submitted:
-            final_category = sel_cat
-            if sel_cat == "+ Add new category...":
-                if not new_cat_inline or not new_cat_inline.strip():
-                    st.error("Please enter a new category name.")
+    if sel_cat == "+ Add new category...":
+        new_cat_inline = st.text_input("New category name (for the selected Type)", key="add_new_category_name")
+        if st.button("Add category to list", key="btn_add_cat_inline"):
+            if new_cat_inline and new_cat_inline.strip():
+                if add_category(etype, new_cat_inline.strip()):
+                    st.session_state["add_category"] = new_cat_inline.strip()
+                    st.success(f"Added '{new_cat_inline.strip()}' under {etype}.")
+                    st.rerun()
+                else:
+                    st.warning("That category already exists or name is invalid.")
+            else:
+                st.error("Please enter a category name.")
+
+    notes = st.text_area("Notes", height=80, key="add_notes")
+
+    if st.button("Add entry", type="primary", key="btn_add_entry"):
+        amt = parse_amount_text(amount_text)
+        if amt is None or amt < 0:
+            st.error("Please enter a valid non-negative amount.")
+        else:
+            final_category = st.session_state.get("add_category")
+            if final_category == "+ Add new category...":
+                new_name = st.session_state.get("add_new_category_name", "")
+                if not new_name or not new_name.strip():
+                    st.error("Please add a new category name or choose an existing one.")
                     st.stop()
-                add_category(etype, new_cat_inline.strip())
-                final_category = new_cat_inline.strip()
+                add_category(etype, new_name.strip())
+                final_category = new_name.strip()
 
             add_entry({
                 "date": dt.isoformat(),
                 "period": to_period(dt),
                 "type": etype,
                 "category": final_category,
-                "source": source.strip(),
-                "amount": float(amount),
-                "status": status,
-                "notes": notes.strip(),
+                "source": (source or "").strip(),
+                "amount": float(amt),
+                "status": st.session_state["add_status"],
+                "notes": (notes or "").strip(),
                 "is_manual": 1 if is_manual else 0,
-                "tags": tags.strip()
+                "tags": (tags or "").strip()
             })
             st.success("Entry added.")
+            # Optional: clear some fields
+            for k in ("add_source","add_tags","add_notes","add_amount_text"):
+                st.session_state[k] = ""
             st.rerun()
 
     st.markdown("---")
-    with st.expander("Advanced: Edit or Delete a specific entry"):
-        df_adv = load_entries_df(st.session_state["period"])
-        if df_adv.empty:
-            st.info("No entries to edit.")
-        else:
-            options = df_adv.apply(lambda r: f"#{r['id']} | {r['date']} | {r['type']} | {r['category']} | {r['amount']}", axis=1).tolist()
-            id_map = {opt: int(opt.split("|")[0].strip().replace("#","")) for opt in options}
-            sel = st.selectbox("Select entry", [""] + options)
-            if sel:
-                eid = id_map[sel]
-                row = df_adv[df_adv["id"]==eid].iloc[0]
-                with st.form("edit_entry_form"):
-                    c1, c2, c3, c4 = st.columns(4)
-                    edate = c1.date_input("Date", value=date.fromisoformat(row["date"]))
-                    etype2 = c2.selectbox("Type", ["Income","Expense"], index=0 if row["type"]=="Income" else 1)
-                    eamount = c3.number_input("Amount", step=1.0, value=float(row["amount"]), format="%.2f", min_value=0.0)
-                    estatus = c4.selectbox("Status", ["Paid","Pending","Planned"], index=["Paid","Pending","Planned"].index(row["status"] if row["status"] in ["Paid","Pending","Planned"] else "Pending"))
+    st.markdown("### Advanced: Edit or Delete a specific entry")
+    df_adv = load_entries_df(st.session_state["period"])
+    if df_adv.empty:
+        st.info("No entries to edit.")
+    else:
+        options = df_adv.apply(lambda r: f"#{r['id']} | {r['date']} | {r['type']} | {r['category']} | {r['amount']}", axis=1).tolist()
+        id_map = {opt: int(opt.split("|")[0].strip().replace("#","")) for opt in options}
+        sel = st.selectbox("Select entry", [""] + options, key="edit_select")
+        if sel:
+            eid = id_map[sel]
+            row = df_adv[df_adv["id"]==eid].iloc[0]
 
-                    # Type-aware category dropdown
-                    cat_opts2 = get_categories(etype2) + ["+ Add new category..."]
-                    c5, c6, c7, c8 = st.columns(4)
-                    ecat = c5.selectbox("Category", cat_opts2, index=(cat_opts2.index(row["category"]) if row["category"] in cat_opts2 else 0))
-                    esource = c6.text_input("Source/Payee", value=row["source"] or "")
-                    eis_manual = c7.checkbox("Manual entry?", value=bool(row["is_manual"]))
-                    etags = c8.text_input("Tags", value=row["tags"] or "")
-                    enotes = st.text_area("Notes", value=row["notes"] or "", height=80)
+            c1, c2, c3, c4 = st.columns(4)
+            edate = c1.date_input("Date", value=date.fromisoformat(row["date"]), key=f"edit_date_{eid}")
+            etype2 = c2.selectbox("Type", ["Income","Expense"], index=0 if row["type"]=="Income" else 1, key=f"edit_type_{eid}")
+            eamount_text = c3.text_input("Amount", value=str(row["amount"]), key=f"edit_amount_text_{eid}")
+            estatus = c4.selectbox("Status", ["Paid","Pending","Planned"], index=["Paid","Pending","Planned"].index(row["status"] if row["status"] in ["Paid","Pending","Planned"] else "Pending"), key=f"edit_status_{eid}")
 
-                    new_cat_inline2 = None
-                    if ecat == "+ Add new category...":
-                        new_cat_inline2 = st.text_input("New category name (for the selected Type)", key="new_cat_inline2")
+            c5, c6, c7, c8 = st.columns(4)
+            cat_opts2 = get_categories(etype2) + ["+ Add new category..."]
+            current_cat = row["category"] if row["category"] in cat_opts2 else cat_opts2[0]
+            ecat = c5.selectbox("Category", cat_opts2, index=cat_opts2.index(current_cat), key=f"edit_category_{eid}")
+            esource = c6.text_input("Source/Payee", value=row["source"] or "", key=f"edit_source_{eid}")
+            eis_manual = c7.checkbox("Manual entry?", value=bool(row["is_manual"]), key=f"edit_manual_{eid}")
+            etags = c8.text_input("Tags", value=row["tags"] or "", key=f"edit_tags_{eid}")
+            enotes = st.text_area("Notes", value=row["notes"] or "", height=80, key=f"edit_notes_{eid}")
 
-                    colA, colB = st.columns([1,1])
-                    save = colA.form_submit_button("Save changes")
-                    delete = colB.form_submit_button("Delete", type="secondary")
+            if ecat == "+ Add new category...":
+                new_cat_inline2 = st.text_input("New category name (for the selected Type)", key=f"edit_new_cat_name_{eid}")
+                if st.button("Add category to list", key=f"btn_edit_add_cat_{eid}"):
+                    if new_cat_inline2 and new_cat_inline2.strip():
+                        if add_category(etype2, new_cat_inline2.strip()):
+                            st.session_state[f"edit_category_{eid}"] = new_cat_inline2.strip()
+                            st.success(f"Added '{new_cat_inline2.strip()}' under {etype2}.")
+                            st.rerun()
+                        else:
+                            st.warning("That category already exists or name is invalid.")
+                    else:
+                        st.error("Please enter a category name.")
 
-                    if save:
-                        final_cat2 = ecat
-                        if ecat == "+ Add new category..." and new_cat_inline2 and new_cat_inline2.strip():
-                            add_category(etype2, new_cat_inline2.strip())
-                            final_cat2 = new_cat_inline2.strip()
+            colA, colB = st.columns(2)
+            if colA.button("Save changes", key=f"btn_save_{eid}"):
+                amt2 = parse_amount_text(eamount_text)
+                if amt2 is None or amt2 < 0:
+                    st.error("Please enter a valid non-negative amount.")
+                else:
+                    final_cat2 = st.session_state.get(f"edit_category_{eid}", ecat)
+                    if final_cat2 == "+ Add new category...":
+                        new_name2 = st.session_state.get(f"edit_new_cat_name_{eid}", "")
+                        if not new_name2 or not new_name2.strip():
+                            st.error("Please add a new category name or choose an existing one.")
+                            st.stop()
+                        add_category(etype2, new_name2.strip())
+                        final_cat2 = new_name2.strip()
 
-                        update_entry(eid, {
-                            "date": edate.isoformat(),
-                            "period": to_period(edate),
-                            "type": etype2,
-                            "category": final_cat2,
-                            "source": esource.strip(),
-                            "amount": float(eamount),
-                            "status": estatus,
-                            "notes": enotes.strip(),
-                            "is_manual": 1 if eis_manual else 0,
-                            "tags": etags.strip()
-                        })
-                        st.success("Updated.")
-                        st.rerun()
+                    update_entry(eid, {
+                        "date": edate.isoformat(),
+                        "period": to_period(edate),
+                        "type": etype2,
+                        "category": final_cat2,
+                        "source": esource.strip(),
+                        "amount": float(amt2),
+                        "status": estatus,
+                        "notes": enotes.strip(),
+                        "is_manual": 1 if eis_manual else 0,
+                        "tags": etags.strip()
+                    })
+                    st.success("Updated.")
+                    st.rerun()
 
-                    if delete:
-                        delete_entry(eid)
-                        st.warning("Deleted.")
-                        st.rerun()
+            if colB.button("Delete", type="secondary", key=f"btn_delete_{eid}"):
+                delete_entry(eid)
+                st.warning("Deleted.")
+                st.rerun()
 
 # Import
 with tabs[2]:
@@ -1151,6 +1192,7 @@ with tabs[6]:
             init_db()
             st.warning("Database wiped.")
             st.rerun()
+
 
 
 
