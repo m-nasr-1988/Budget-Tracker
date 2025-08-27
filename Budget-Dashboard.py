@@ -605,10 +605,18 @@ with st.sidebar:
     st.markdown("---")
     st.caption("Tip: Deploy to Streamlit Cloud for a shareable link.")
 
-tabs = st.tabs(["Dashboard","Entries","Import","Templates","Rules","Budgets","Settings"])
+show_rules_tab = False  # toggle to True when you want to show the Rules tab
+
+tab_names = ["Dashboard", "Entries", "Import", "Templates"]
+if show_rules_tab:
+    tab_names.append("Rules")
+tab_names += ["Budgets", "Settings"]
+
+tab_objs = st.tabs(tab_names)
+tab = {name: tab_objs[i] for i, name in enumerate(tab_names)}
 
 # Dashboard
-with tabs[0]:
+with tabs["Dashboard"]:
     col1, col2, col3 = st.columns(3)
     summary = calc_month_summary(st.session_state["period"])
     income = summary["income"]
@@ -702,7 +710,7 @@ with tabs[0]:
             st.plotly_chart(fig_fc, use_container_width=True)
 
 # Entries
-with tabs[1]:
+with tabs["Entries"]:
     st.subheader(f"Entries for {st.session_state['period']}")
 
     # Search/filter
@@ -938,7 +946,7 @@ with tabs[1]:
                     st.warning("Deleted.")
                     st.rerun()
 # Import
-with tabs[2]:
+with tabs["Import"]:
     st.subheader("Upload Excel/CSV")
     up = st.file_uploader("Upload file", type=["xlsx","xls","csv"])
     if up is not None:
@@ -1185,7 +1193,7 @@ with tabs[2]:
 
     
 # Templates
-with tabs[3]:
+with tabs["Templates"]:
     st.subheader("Templates")
 
     templates = list_templates()
@@ -1322,39 +1330,40 @@ with tabs[3]:
             st.rerun()
 
 # Rules
-with tabs[4]:
-    st.subheader("Auto-categorization rules")
-    rules = load_rules()
-    if rules:
-        rdf = pd.DataFrame(rules)
-        st.dataframe(rdf[["id","pattern","category","type","field","regex","priority"]], use_container_width=True)
-    else:
-        st.info("No rules yet. Add one below.")
-
-    with st.form("add_rule_form"):
-        c1,c2,c3 = st.columns(3)
-        pattern = c1.text_input("Pattern (substring or regex)")
-        rcat = c2.text_input("Category to assign")
-        rtype = c3.selectbox("Type match", ["Any","Expense","Income"], index=0)
-        c4,c5,c6 = st.columns(3)
-        field = c4.selectbox("Field to search", ["any","source","notes","category"], index=0)
-        regex = c5.checkbox("Use regex?", value=False)
-        priority = c6.number_input("Priority (lower = earlier)", min_value=1, max_value=999, value=100)
-        addbtn = st.form_submit_button("Add rule")
-        if addbtn and pattern.strip() and rcat.strip():
-            add_rule(pattern.strip(), rcat.strip(), rtype, field, regex=regex, priority=priority)
-            st.success("Rule added.")
-            st.rerun()
-
-    del_id = st.number_input("Delete rule by ID", min_value=0, step=1)
-    if st.button("Delete rule"):
-        if del_id > 0:
-            delete_rule(int(del_id))
-            st.warning(f"Rule {int(del_id)} deleted.")
-            st.rerun()
+if show_rules_tab:
+    with tabs["Rules"]:
+        st.subheader("Auto-categorization rules")
+        rules = load_rules()
+        if rules:
+            rdf = pd.DataFrame(rules)
+            st.dataframe(rdf[["id","pattern","category","type","field","regex","priority"]], use_container_width=True)
+        else:
+            st.info("No rules yet. Add one below.")
+    
+        with st.form("add_rule_form"):
+            c1,c2,c3 = st.columns(3)
+            pattern = c1.text_input("Pattern (substring or regex)")
+            rcat = c2.text_input("Category to assign")
+            rtype = c3.selectbox("Type match", ["Any","Expense","Income"], index=0)
+            c4,c5,c6 = st.columns(3)
+            field = c4.selectbox("Field to search", ["any","source","notes","category"], index=0)
+            regex = c5.checkbox("Use regex?", value=False)
+            priority = c6.number_input("Priority (lower = earlier)", min_value=1, max_value=999, value=100)
+            addbtn = st.form_submit_button("Add rule")
+            if addbtn and pattern.strip() and rcat.strip():
+                add_rule(pattern.strip(), rcat.strip(), rtype, field, regex=regex, priority=priority)
+                st.success("Rule added.")
+                st.rerun()
+    
+        del_id = st.number_input("Delete rule by ID", min_value=0, step=1)
+        if st.button("Delete rule"):
+            if del_id > 0:
+                delete_rule(int(del_id))
+                st.warning(f"Rule {int(del_id)} deleted.")
+                st.rerun()
 
 # Budgets
-with tabs[5]:
+with tabs["Budgets"]:
     st.subheader(f"Budgets for {st.session_state['period']}")
 
     # Category dropdown (Expense categories only)
@@ -1428,7 +1437,7 @@ with tabs[5]:
                     st.rerun()
 
 # Settings
-with tabs[6]:
+with tabs["Settings"]:
     st.subheader("Export (selected month)")
     df_month = load_entries_df(st.session_state["period"])
     if not df_month.empty:
@@ -1537,6 +1546,7 @@ with tabs[6]:
             init_db()
             st.warning("Database wiped.")
             st.rerun()
+
 
 
 
