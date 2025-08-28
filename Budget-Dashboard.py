@@ -695,23 +695,6 @@ with st.sidebar:
     sel_period = st.selectbox("Select month", periods, index=periods.index(default_period))
     st.session_state["period"] = sel_period
 
-    st.markdown("---")
-    st.subheader("Sample data")
-    st.caption("Adds 10 demo entries to June of the current year to preview charts.")
-
-    skip_dups = st.checkbox("Skip duplicates",value=True,help="Avoid adding the same sample rows again.")
-    replace_seed = st.checkbox("Replace existing",value=False,help="Delete existing June sample rows (notes='seed'), then add fresh ones.")
-
-    if st.button("Add sample entries now", use_container_width=True):
-        # Assumes you’re using the updated seed_example_data(year, skip_duplicates, replace)
-        added = seed_example_data(year=date.today().year,skip_duplicates=skip_dups,replace=replace_seed)
-        st.success(
-            f"Replaced sample data. Added {added} entries."
-            if replace_seed else
-            f"Added {added} new sample entries."
-        )
-        st.rerun()
-
     # Compact toolbar row of icon popovers
     st.markdown("---")
     c1, c2 = st.columns([1, 1], gap="small")
@@ -1634,6 +1617,7 @@ with tab["Budgets"]:
                     conn.close()
                     st.warning("Budget deleted.")
                     st.rerun()
+
 
 
 
