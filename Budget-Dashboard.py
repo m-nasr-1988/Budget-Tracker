@@ -570,108 +570,86 @@ def forecast_next_month():
 
 
 def render_settings_sidebar():
-    st.markdown("Export")
-    # Selected month
-    df_month = load_entries_df(st.session_state["period"])
-    if not df_month.empty:
-        csv_month = df_month.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            "⬇️ Month CSV",
-            csv_month,
-            file_name=f"entries_{st.session_state['period']}.csv",
-            mime="text/csv",
-            key="sb_dl_month_csv",
-            use_container_width=True,
-        )
-    else:
-        st.caption("No entries to export for this month.")
-
-    # All data
-    df_all = load_entries_df()
-    if not df_all.empty:
-        csv_all = df_all.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            "⬇️ All data CSV",
-            csv_all,
-            file_name="entries_all.csv",
-            mime="text/csv",
-            key="sb_dl_all_csv",
-            use_container_width=True,
-        )
-    else:
-        st.caption("No data available yet.")
-
-    # SQLite backup download
-    st.markdown("Database")
-    if DB_PATH.exists():
-        with open(DB_PATH, "rb") as f:
+    # Compact, scroll-friendly content: everything collapsed by default
+    with st.expander("Export", expanded=False):
+        df_month = load_entries_df(st.session_state["period"])
+        if not df_month.empty:
             st.download_button(
-                "⬇️ Download budget.db",
-                f,
-                file_name="budget.db",
-                mime="application/octet-stream",
-                key="sb_dl_db",
+                "⬇️ Month CSV",
+                df_month.to_csv(index=False).encode("utf-8"),
+                file_name=f"entries_{st.session_state['period']}.csv",
+                mime="text/csv",
+                key="sb_dl_month_csv",
                 use_container_width=True,
             )
-    else:
-        st.caption("Database file will be created automatically when you add data.")
-
-    st.markdown("---")
-    st.markdown("Sample data")
-    st.caption("Manage demo rows inserted via the sample seeding (notes='seed').")
-
-    yr = st.number_input(
-        "Year for June sample",
-        min_value=2000,
-        max_value=2100,
-        value=date.today().year,
-        step=1,
-        key="sb_seed_year",
-    )
-
-    if st.button("Remove June sample (selected year)", key="sb_btn_rm_june_seed", use_container_width=True):
-        conn = get_conn()
-        june_period = f"{int(yr):04d}-06"
-        conn.execute("DELETE FROM entries WHERE period=? AND notes='seed'", (june_period,))
-        conn.commit()
-        conn.close()
-        st.warning(f"Removed sample entries for {june_period}.")
-        st.rerun()
-
-    if st.button("Replace June sample (selected year)", key="sb_btn_replace_june_seed", use_container_width=True):
-        # Remove then re-seed
-        conn = get_conn()
-        june_period = f"{int(yr):04d}-06"
-        conn.execute("DELETE FROM entries WHERE period=? AND notes='seed'", (june_period,))
-        conn.commit()
-        conn.close()
-        # Re-seed with backward-compatible call
-        added = None
-        try:
-            added = seed_example_data(year=int(yr), skip_duplicates=False, replace=False)
-        except TypeError:
-            try:
-                seed_example_data(int(yr))
-            except Exception:
-                pass
-        if added is not None:
-            st.success(f"Re-seeded June {int(yr)} with {added} sample entries.")
         else:
-            st.success(f"Re-seeded June {int(yr)}.")
-        st.rerun()
+            st.caption("No entries to export for this month.")
 
-    if st.button("Remove ALL sample entries (any month/year)", key="sb_btn_rm_all_seed", use_container_width=True):
-        conn = get_conn()
-        conn.execute("DELETE FROM entries WHERE notes='seed'")
-        conn.commit()
-        conn.close()
-        st.warning("Removed all sample entries.")
-        st.rerun()
+        df_all = load_entries_df()
+        if not df_all.empty:
+            st.download_button(
+                "⬇️ All data CSV",
+                df_all.to_csv(index=False).encode("utf-8"),
+                file_name="entries_all.csv",
+                mime="text/csv",
+                key="sb_dl_all_csv",
+                use_container_width=True,
+            )
+        else:
+            st.caption("No data available yet.")
 
-    st.markdown("---")
+    with st.expander("Database", expanded=False):
+        if DB_PATH.exists():
+            with open(DB_PATH, "rb") as f:
+                st.download_button(
+                    "⬇️ Download budget.db",
+                    f,
+                    file_name="budget.db",
+                    mime="application/octet-stream",
+                    key="sb_dl_db",
+                    use_container_width=True,
+                )
+        else:
+            st.caption("DB will be created automatically when you add data.")
+
+    with st.expander("Sample data", expanded=False):
+        yr = st.number_input(
+            "Year for June sample",
+            min_value=2000, max_value=2100, value=date.today().year, step=1,
+            key="sb_seed_year",
+        )
+        col1, col2 = st.columns(2)
+        if col1.button("Remove June sample", key="sb_btn_rm_june_seed", use_container_width=True):
+            conn = get_conn()
+            june_period = f"{int(yr):04d}-06"
+            conn.execute("DELETE FROM entries WHERE period=? AND notes='seed'", (june_period,))
+            conn.commit(); conn.close()
+            st.warning(f"Removed sample entries for {june_period}.")
+            st.rerun()
+        if col2.button("Replace June sample", key="sb_btn_replace_june_seed", use_container_width=True):
+            conn = get_conn()
+            june_period = f"{int(yr):04d}-06"
+            conn.execute("DELETE FROM entries WHERE period=? AND notes='seed'", (june_period,))
+            conn.commit(); conn.close()
+            # Backward-compatible call
+            try:
+                added = seed_example_data(year=int(yr), skip_duplicates=False, replace=False)
+                st.success(f"Re-seeded June {int(yr)} with {added} entries.")
+            except TypeError:
+                seed_example_data(int(yr))
+                st.success(f"Re-seeded June {int(yr)}.")
+            st.rerun()
+
+        if st.button("Remove ALL sample entries", key="sb_btn_rm_all_seed", use_container_width=True):
+            conn = get_conn()
+            conn.execute("DELETE FROM entries WHERE notes='seed'")
+            conn.commit(); conn.close()
+            st.warning("Removed all sample entries.")
+            st.rerun()
+
     with st.expander("Danger zone", expanded=False):
-        st.caption("Irreversible actions.")
-        if st.button("Wipe ALL data (delete local database)", type="secondary", key="sb_btn_wipe_all", use_container_width=True):
+        st.caption("Irreversible.")
+        if st.button("Wipe ALL data (delete DB)", type="secondary", key="sb_btn_wipe_all", use_container_width=True):
             if DB_PATH.exists():
                 DB_PATH.unlink()
             init_db()
@@ -697,42 +675,37 @@ with st.sidebar:
 
     # Compact toolbar row of icon popovers
     st.markdown("---")
+    st.caption("Toolbar")
+    
     c1, c2 = st.columns([1, 1], gap="small")
     
-    # ⚙️ Settings (Export, DB, Seed mgmt, Danger zone)
     with c1:
         if hasattr(st, "popover"):
             with st.popover("⚙️"):
-                render_settings_sidebar()  # reuse your existing function
+                render_settings_sidebar()
         else:
             with st.expander("⚙️ Settings", expanded=False):
                 render_settings_sidebar()
     
-    # 🧪 Sample data (optional separate icon; remove this block if you keep it inside ⚙️)
-    def render_sample_data_quick():
+    # Keep 🧪 tiny: just one quick action
+    def render_sample_quick():
         st.caption("Add demo rows to June (current year)")
-        skip_dups = st.checkbox("Skip duplicates", value=True, key="sb_sd_skip")
-        replace_seed = st.checkbox("Replace existing", value=False, key="sb_sd_replace")
         if st.button("Add sample entries", key="sb_sd_add", use_container_width=True):
             try:
-                added = seed_example_data(year=date.today().year, skip_duplicates=skip_dups, replace=replace_seed)
+                added = seed_example_data(year=date.today().year, skip_duplicates=True, replace=False)
             except TypeError:
-                # Backward compatibility with older seed function
                 added = None
                 seed_example_data(date.today().year)
-            st.success(f"Added {added or 10} entries.")  # 10 in the default seed
+            st.success(f"Added {added or 10} sample entries.")
             st.rerun()
     
     with c2:
         if hasattr(st, "popover"):
             with st.popover("🧪"):
-                render_sample_data_quick()
+                render_sample_quick()
         else:
-            with st.expander("🧪 Sample data", expanded=False):
-                render_sample_data_quick()
-
-    st.markdown("---")
-    st.caption("Tip: Deploy to Streamlit Cloud for a shareable link.")
+            with st.expander("🧪 Sample", expanded=False):
+                render_sample_quick()
 
 show_rules_tab = False  # toggle to True when you want to show the Rules tab
 
@@ -1618,8 +1591,21 @@ with tab["Budgets"]:
                     st.warning("Budget deleted.")
                     st.rerun()
 
+# ------------- CSS -------------
 
-
+st.markdown("""
+<style>
+/* Make sidebar popovers scroll instead of growing too tall */
+section[data-testid="stSidebar"] div[data-baseweb="popover"] {
+  max-height: 70vh !important;
+  overflow: auto !important;
+}
+/* Tighten spacing and button padding inside sidebar to feel compact */
+section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"] { gap: 0.5rem !important; }
+section[data-testid="stSidebar"] button[kind="secondary"], 
+section[data-testid="stSidebar"] button[kind="primary"] { padding: 0.25rem 0.5rem !important; }
+</style>
+""", unsafe_allow_html=True)
 
 
 
