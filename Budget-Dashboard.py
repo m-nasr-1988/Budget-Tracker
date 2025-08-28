@@ -870,7 +870,60 @@ with tab["Entries"]:
                 for k in ("add_source","add_tags","add_notes","add_amount_text"):
                     safe_clear_state(k)
                 st.rerun()
-    
+
+        # --- Quick budgets (this month) ---
+        with st.expander("Quick budgets (this month)"):
+            exp_cats = get_categories("Expense")
+            cat_plus = exp_cats + ["+ Add new category..."]
+        
+            c1, c2 = st.columns([2, 1.2])
+            sel_budget_cat_e = c1.selectbox("Category", cat_plus, key="e_budget_cat_select")
+            budget_amt_text_e = c2.text_input("Amount", value="", placeholder="e.g. 500.00", key="e_budget_amount_text")
+        
+            # Inline add new category
+            if sel_budget_cat_e == "+ Add new category...":
+                new_budget_cat_e = st.text_input("New expense category name", key="e_budget_new_cat_name")
+                if st.button("Add category", key="e_btn_add_budget_cat"):
+                    if new_budget_cat_e and new_budget_cat_e.strip():
+                        if add_category("Expense", new_budget_cat_e.strip()):
+                            st.session_state["e_budget_cat_select"] = new_budget_cat_e.strip()
+                            st.success(f"Added '{new_budget_cat_e.strip()}' to Expense categories.")
+                            st.rerun()
+                        else:
+                            st.warning("That category already exists or name is invalid.")
+                    else:
+                        st.error("Please enter a category name.")
+        
+            if st.button("Set/Update budget", key="e_btn_set_budget"):
+                # Resolve category (handles "+ Add new...")
+                if st.session_state["e_budget_cat_select"] == "+ Add new category...":
+                    new_cat_name = st.session_state.get("e_budget_new_cat_name", "")
+                    if not new_cat_name or not new_cat_name.strip():
+                        st.error("Please add a new category name or choose an existing one.")
+                        st.stop()
+                    add_category("Expense", new_cat_name.strip())
+                    final_cat_e = new_cat_name.strip()
+                else:
+                    final_cat_e = st.session_state["e_budget_cat_select"]
+        
+                # Parse amount (free-typed)
+                amt_val_e = parse_amount_text(budget_amt_text_e)
+                if amt_val_e is None or amt_val_e < 0:
+                    st.error("Please enter a valid non-negative amount.")
+                else:
+                    set_budget(st.session_state["period"], final_cat_e, float(amt_val_e))
+                    st.success(f"Budget set for {final_cat_e}: {amt_val_e:,.2f}")
+                    # Clear amount field safely
+                    st.session_state.pop("e_budget_amount_text", None)
+                    st.rerun()
+        
+            st.markdown("Current budgets for this month")
+            budgets_df_e = get_budgets(st.session_state["period"])
+            if budgets_df_e.empty:
+                st.info("No budgets set for this month yet.")
+            else:
+                st.dataframe(budgets_df_e, use_container_width=True)
+
         st.markdown("---")
         st.markdown("### Advanced: Edit or Delete a specific entry")
         df_adv = load_entries_df(st.session_state["period"])
@@ -1546,6 +1599,7 @@ with tab["Settings"]:
             init_db()
             st.warning("Database wiped.")
             st.rerun()
+
 
 
 
