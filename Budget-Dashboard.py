@@ -414,7 +414,7 @@ KEYWORD_CATEGORY_MAP = [
     (r"car|fuel|gas|diesel|parking|uber|lyft", "Transportation"),
     (r"utility|electric|power|water|gas bill", "Utilities"),
     (r"phone|mobile|cell", "Phone"),
-    (r"laya|insurance|insur", "Insurance"),
+    (r"Health|insurance|insur", "Insurance"),
     (r"grocery|market|supermarket|walmart|costco|tesco|aldi|lidl", "Groceries"),
     (r"restaurant|cafe|coffee|starbucks|mcdonald|kfc|burger|pizza|bar|pub", "Dining"),
     (r"entertainment|cinema|movie|game|xbox|psn|steam", "Entertainment"),
@@ -482,7 +482,7 @@ def seed_example_data(year: int, month: int = 6, skip_duplicates: bool = True, r
         {"type":"Expense","category":"Rent","source":"Rent","amount":1650,"status":"Paid"},
         {"type":"Expense","category":"Car","source":"Car","amount":360,"status":"Paid"},
         {"type":"Expense","category":"Utilities","source":"Utilities","amount":150,"status":"Pending"},
-        {"type":"Expense","category":"Laya","source":"Laya","amount":150,"status":"Paid"},
+        {"type":"Expense","category":"Health","source":"Health","amount":150,"status":"Paid"},
         {"type":"Expense","category":"Phone","source":"Phone","amount":55,"status":"Pending"},
     ]
 
@@ -1645,6 +1645,7 @@ section[data-testid="stSidebar"] button[kind="secondary"],
 section[data-testid="stSidebar"] button[kind="primary"] { padding: 0.25rem 0.5rem !important; }
 </style>
 """, unsafe_allow_html=True)
+
 
 
 
