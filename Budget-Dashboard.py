@@ -466,9 +466,12 @@ def auto_categorize(row, rules):
     return categorize_with_heuristics(row.get("source"), row.get("notes"), category)
 
 # ------------- Seed sample data -------------
-def seed_example_data(year: int, skip_duplicates: bool = True, replace: bool = False) -> int:
-    june = f"{year:04d}-06"
-    jdate = date(year, 6, 1).isoformat()
+def seed_example_data(year: int, month: int = 6, skip_duplicates: bool = True, replace: bool = False) -> int:
+    """Seed sample demo entries into the given year/month.
+    Returns the number of entries added.
+    """
+    period = f"{year:04d}-{month:02d}"
+    d1 = date(year, month, 1).isoformat()
 
     samples = [
         {"type":"Income","category":"Bank","source":"Bank","amount":23600,"status":"Paid"},
@@ -485,7 +488,7 @@ def seed_example_data(year: int, skip_duplicates: bool = True, replace: bool = F
 
     if replace:
         conn = get_conn()
-        conn.execute("DELETE FROM entries WHERE period=? AND notes='seed'", (june,))
+        conn.execute("DELETE FROM entries WHERE period=? AND notes='seed'", (period,))
         conn.commit()
         conn.close()
 
@@ -494,19 +497,19 @@ def seed_example_data(year: int, skip_duplicates: bool = True, replace: bool = F
         conn = get_conn()
         rows = conn.execute(
             "SELECT type, category, source, amount FROM entries WHERE period=? AND notes='seed'",
-            (june,)
+            (period,)
         ).fetchall()
         conn.close()
-        existing_keys = {(r["type"], r["category"], r["source"], round(float(r["amount"]),2)) for r in rows}
+        existing_keys = {(r["type"], r["category"], r["source"], round(float(r["amount"]), 2)) for r in rows}
 
     added = 0
     for s in samples:
-        key = (s["type"], s["category"], s["source"], round(float(s["amount"]),2))
+        key = (s["type"], s["category"], s["source"], round(float(s["amount"]), 2))
         if skip_duplicates and key in existing_keys:
             continue
         add_entry({
-            "date": jdate,
-            "period": june,
+            "date": d1,
+            "period": period,
             "type": s["type"],
             "category": s["category"],
             "source": s["source"],
@@ -689,44 +692,50 @@ with st.sidebar:
     
     # Sample Data 🧪
     def render_sample_quick():
-        st.caption("Add demo rows to June (selected year)")
+        st.caption("Add demo rows to a specific month")
     
+        # Pick Year and Month
         yr = st.number_input(
             "Year",
             min_value=2000, max_value=2100, value=date.today().year, step=1,
             key="sb_sd_year_small",
         )
+        month_names = ["January","February","March","April","May","June",
+                       "July","August","September","October","November","December"]
+        default_month_idx = date.today().month - 1
+        mname = st.selectbox("Month", month_names, index=default_month_idx, key="sb_sd_month_name")
+        mnum = month_names.index(mname) + 1
+    
+        # Options
         skip_dups = st.checkbox("Skip duplicates", value=True, key="sb_sd_skip")
         replace_seed = st.checkbox(
             "Replace existing",
             value=False,
-            help="Delete previously added June sample entries (notes='seed') for the selected year, then add fresh.",
+            help="Delete previously added sample entries for the selected month (notes='seed'), then add fresh.",
             key="sb_sd_replace"
         )
     
+        # Action
         if st.button("Add sample entries", key="sb_sd_add", use_container_width=True):
             try:
-                # Preferred: use the enhanced seed function if available
                 added = seed_example_data(
                     year=int(yr),
+                    month=int(mnum),
                     skip_duplicates=skip_dups,
                     replace=replace_seed
                 )
-                if replace_seed:
-                    st.success(f"Replaced and added {added} sample entries for {int(yr)}-06.")
-                else:
-                    st.success(f"Added {added} sample entries for {int(yr)}-06.")
+                msg = f"{'Replaced and added' if replace_seed else 'Added'} {added} sample entries for {int(yr):04d}-{int(mnum):02d}."
+                st.success(msg)
             except TypeError:
-                # Backward compatibility: emulate replace; skip_dups may not be supported
+                # Fallback for older function signature (no month/skip/replace support)
+                # Emulate 'replace' and default to June seeding if not updated.
+                period = f"{int(yr):04d}-{int(mnum):02d}"
                 if replace_seed:
                     conn = get_conn()
-                    june_period = f"{int(yr):04d}-06"
-                    conn.execute("DELETE FROM entries WHERE period=? AND notes='seed'", (june_period,))
+                    conn.execute("DELETE FROM entries WHERE period=? AND notes='seed'", (period,))
                     conn.commit(); conn.close()
-                # This older function may add duplicates if skip_dups isn't supported
-                seed_example_data(int(yr))
-                msg = "Re-seeded June." if replace_seed else "Seeded June."
-                st.success(f"{msg} If you see duplicates, enable 'Replace existing' next time.")
+                seed_example_data(int(yr))  # old function seeds June only
+                st.success("Seeded demo rows. Tip: update seed_example_data to support month for precise control.")
             st.rerun()
     
     with c2:
@@ -1636,6 +1645,7 @@ section[data-testid="stSidebar"] button[kind="secondary"],
 section[data-testid="stSidebar"] button[kind="primary"] { padding: 0.25rem 0.5rem !important; }
 </style>
 """, unsafe_allow_html=True)
+
 
 
 
