@@ -687,16 +687,46 @@ with st.sidebar:
             with st.expander("⚙️ Settings", expanded=False):
                 render_settings_sidebar()
     
-    # Keep 🧪 tiny: just one quick action
+    # Sample Data 🧪
     def render_sample_quick():
-        st.caption("Add demo rows to June (current year)")
+        st.caption("Add demo rows to June (selected year)")
+    
+        yr = st.number_input(
+            "Year",
+            min_value=2000, max_value=2100, value=date.today().year, step=1,
+            key="sb_sd_year_small",
+        )
+        skip_dups = st.checkbox("Skip duplicates", value=True, key="sb_sd_skip")
+        replace_seed = st.checkbox(
+            "Replace existing",
+            value=False,
+            help="Delete previously added June sample entries (notes='seed') for the selected year, then add fresh.",
+            key="sb_sd_replace"
+        )
+    
         if st.button("Add sample entries", key="sb_sd_add", use_container_width=True):
             try:
-                added = seed_example_data(year=date.today().year, skip_duplicates=True, replace=False)
+                # Preferred: use the enhanced seed function if available
+                added = seed_example_data(
+                    year=int(yr),
+                    skip_duplicates=skip_dups,
+                    replace=replace_seed
+                )
+                if replace_seed:
+                    st.success(f"Replaced and added {added} sample entries for {int(yr)}-06.")
+                else:
+                    st.success(f"Added {added} sample entries for {int(yr)}-06.")
             except TypeError:
-                added = None
-                seed_example_data(date.today().year)
-            st.success(f"Added {added or 10} sample entries.")
+                # Backward compatibility: emulate replace; skip_dups may not be supported
+                if replace_seed:
+                    conn = get_conn()
+                    june_period = f"{int(yr):04d}-06"
+                    conn.execute("DELETE FROM entries WHERE period=? AND notes='seed'", (june_period,))
+                    conn.commit(); conn.close()
+                # This older function may add duplicates if skip_dups isn't supported
+                seed_example_data(int(yr))
+                msg = "Re-seeded June." if replace_seed else "Seeded June."
+                st.success(f"{msg} If you see duplicates, enable 'Replace existing' next time.")
             st.rerun()
     
     with c2:
@@ -1606,6 +1636,7 @@ section[data-testid="stSidebar"] button[kind="secondary"],
 section[data-testid="stSidebar"] button[kind="primary"] { padding: 0.25rem 0.5rem !important; }
 </style>
 """, unsafe_allow_html=True)
+
 
 
 
