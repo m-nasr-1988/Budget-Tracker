@@ -712,14 +712,41 @@ with st.sidebar:
         )
         st.rerun()
 
+    # Compact toolbar row of icon popovers
     st.markdown("---")
-    if hasattr(st.sidebar, "popover"):
-        # Streamlit >= 1.30-ish
-        with st.popover("⚙️"):
-            render_settings_sidebar()
-    else:
-        with st.expander("⚙️ Settings", expanded=False):
-            render_settings_sidebar()
+    c1, c2 = st.columns([1, 1], gap="small")
+    
+    # ⚙️ Settings (Export, DB, Seed mgmt, Danger zone)
+    with c1:
+        if hasattr(st, "popover"):
+            with st.popover("⚙️"):
+                render_settings_sidebar()  # reuse your existing function
+        else:
+            with st.expander("⚙️ Settings", expanded=False):
+                render_settings_sidebar()
+    
+    # 🧪 Sample data (optional separate icon; remove this block if you keep it inside ⚙️)
+    def render_sample_data_quick():
+        st.caption("Add demo rows to June (current year)")
+        skip_dups = st.checkbox("Skip duplicates", value=True, key="sb_sd_skip")
+        replace_seed = st.checkbox("Replace existing", value=False, key="sb_sd_replace")
+        if st.button("Add sample entries", key="sb_sd_add", use_container_width=True):
+            try:
+                added = seed_example_data(year=date.today().year, skip_duplicates=skip_dups, replace=replace_seed)
+            except TypeError:
+                # Backward compatibility with older seed function
+                added = None
+                seed_example_data(date.today().year)
+            st.success(f"Added {added or 10} entries.")  # 10 in the default seed
+            st.rerun()
+    
+    with c2:
+        if hasattr(st, "popover"):
+            with st.popover("🧪"):
+                render_sample_data_quick()
+        else:
+            with st.expander("🧪 Sample data", expanded=False):
+                render_sample_data_quick()
 
     st.markdown("---")
     st.caption("Tip: Deploy to Streamlit Cloud for a shareable link.")
@@ -1607,6 +1634,7 @@ with tab["Budgets"]:
                     conn.close()
                     st.warning("Budget deleted.")
                     st.rerun()
+
 
 
 
